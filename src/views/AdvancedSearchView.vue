@@ -710,7 +710,8 @@ onMounted(() => {
   background: white;
   padding: 1.5rem;
   border-radius: 8px;
-  min-width: 320px;
+  width: 320px;
+  max-width: 90vw;
 }
 
 .modal-dialog h3 {
@@ -724,6 +725,7 @@ onMounted(() => {
   border-radius: 4px;
   font-size: 1rem;
   margin-bottom: 1rem;
+  box-sizing: border-box;
 }
 
 .modal-actions {

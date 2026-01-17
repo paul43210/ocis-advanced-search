@@ -1,0 +1,4 @@
+# Ignore auth state files (contain session tokens)
+user.json
+*.json
+!.gitignore

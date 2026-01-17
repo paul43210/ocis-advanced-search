@@ -35,30 +35,6 @@
 
 ---
 
-## Phase 1: Core Features (Complete)
-
-### ✅ Search Interface
-- [x] Main search input field
-- [x] KQL query builder from filter state
-- [x] Search API integration via WebDAV
-- [x] Results display with pagination
-- [x] Loading/error states
-
-### ✅ Filter Panel
-- [x] Basic Filters: Name, Type, Size range, Date modified
-- [x] Media Filters: Media type dropdown, Tags
-- [x] Photo/EXIF Filters: Camera Make/Model, Date Taken, ISO, Aperture, Focal Length
-- [x] Full-Text content search
-- [x] Filter chips showing active filters
-- [x] Remove individual filters
-
-### ✅ Results Display
-- [x] List view with file details
-- [x] Search statistics panel
-- [x] File type indicators
-
----
-
 ## Phase 2: UI/UX Improvements
 
 ### 🟡 Results View Options
@@ -67,7 +43,6 @@
 - [ ] Toggle between view modes
 
 ### 🟡 Filter Enhancements
-- [ ] Collapsible filter sections (progressive disclosure)
 - [ ] Camera Make/Model autocomplete from known values
 - [ ] Smart defaults / presets
 
@@ -84,11 +59,9 @@
 - [ ] Search history dropdown with autocomplete
 - [ ] Clear history option
 
-### 🟡 Saved Searches
-- [ ] Save current search with name
-- [ ] Load saved searches
-- [ ] Delete saved searches
-- [ ] Share saved searches (URL-based)
+### 🟡 Saved Search Sharing
+- [ ] Share saved searches via URL
+- [ ] Import shared search from URL
 
 ---
 
@@ -147,3 +120,9 @@
 ### Search Fields Supported
 - [x] Standard: name, type, size, mtime, mediatype, tags, content, hidden
 - [x] Photo/EXIF: cameraMake, cameraModel, takenDateTime, fNumber, focalLength, iso, orientation, exposure
+
+### UI/UX
+- [x] Collapsible filter sections (progressive disclosure)
+- [x] Save searches with name
+- [x] Load saved searches
+- [x] Delete saved searches

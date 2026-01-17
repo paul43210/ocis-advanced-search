@@ -177,16 +177,20 @@ export const KNOWN_CAMERA_MAKES = [
 ] as const
 
 /**
- * Common media types for quick selection
+ * Media type keywords supported by oCIS KQL compiler
+ * The compiler expands these to proper mime type queries server-side
  */
 export const COMMON_MEDIA_TYPES = [
   { label: 'All Files', value: '' },
-  { label: 'Images', value: 'image/*' },
-  { label: 'Videos', value: 'video/*' },
-  { label: 'Audio', value: 'audio/*' },
-  { label: 'Documents', value: 'application/*' },
-  { label: 'PDFs', value: 'application/pdf' },
-  { label: 'Text Files', value: 'text/*' },
+  { label: 'Images', value: 'image' },           // expands to image/*
+  { label: 'Videos', value: 'video' },           // expands to video/*
+  { label: 'Audio', value: 'audio' },            // expands to audio/*
+  { label: 'Documents', value: 'document' },     // expands to Word, ODT, text, etc.
+  { label: 'Spreadsheets', value: 'spreadsheet' }, // expands to Excel, ODS, CSV
+  { label: 'Presentations', value: 'presentation' }, // expands to PPT, ODP
+  { label: 'PDFs', value: 'pdf' },               // expands to application/pdf
+  { label: 'Archives', value: 'archive' },       // expands to zip, tar, etc.
+  { label: 'Folders', value: 'folder' },         // directories only
 ] as const
 
 /**

@@ -93,6 +93,11 @@
 - [ ] Accessibility audit (keyboard navigation, screen readers)
 - [ ] i18n/localization support
 - [ ] Mobile responsiveness improvements
+- [ ] **Code complexity audit** - Review functions for cognitive complexity (target: <15 per function)
+  - Run ESLint complexity rules (`complexity`, `max-depth`, `max-nested-callbacks`)
+  - Review large components: `AdvancedSearchView.vue`, `SearchFilters.vue`, `useAdvancedSearch.ts`
+  - Extract helper functions from deeply nested conditionals (especially KQL query building)
+  - Align with SonarQube standards before upstream contribution
 
 ---
 

@@ -3,38 +3,38 @@
     <!-- Standard Filters Section -->
     <div class="filter-section">
       <h4 class="section-title" @click="showStandard = !showStandard">
-        {{ showStandard ? '▼' : '▶' }} Standard Filters
+        {{ showStandard ? '▼' : '▶' }} {{ $gettext('Standard Filters') }}
       </h4>
       
       <div v-if="showStandard" class="filter-group">
         <!-- Name -->
         <div class="filter-row">
-          <label>Name</label>
+          <label>{{ $gettext('Name') }}</label>
           <input
             type="text"
             :value="filters.standard.name || ''"
             @input="emit('update:standard', { ...filters.standard, name: ($event.target as HTMLInputElement).value || undefined })"
             @keyup.enter="emit('search')"
-            placeholder="File name (wildcards: * ?)"
+            :placeholder="$gettext('File name (wildcards: * ?)')"
           />
         </div>
 
         <!-- Type -->
         <div class="filter-row">
-          <label>Type</label>
+          <label>{{ $gettext('Type') }}</label>
           <select
             :value="filters.standard.type || ''"
             @change="emit('update:standard', { ...filters.standard, type: ($event.target as HTMLSelectElement).value as '' | 'file' | 'folder' })"
           >
-            <option value="">All</option>
-            <option value="file">Files only</option>
-            <option value="folder">Folders only</option>
+            <option value="">{{ $gettext('All') }}</option>
+            <option value="file">{{ $gettext('Files only') }}</option>
+            <option value="folder">{{ $gettext('Folders only') }}</option>
           </select>
         </div>
 
         <!-- Media Type -->
         <div class="filter-row">
-          <label>Media Type</label>
+          <label>{{ $gettext('Media Type') }}</label>
           <select
             :value="filters.standard.mediaType || ''"
             @change="emit('update:standard', { ...filters.standard, mediaType: ($event.target as HTMLSelectElement).value || undefined })"
@@ -47,23 +47,23 @@
 
         <!-- Size Range -->
         <div class="filter-row">
-          <label>Size</label>
+          <label>{{ $gettext('Size') }}</label>
           <div class="range-inputs">
             <input
               type="number"
               :value="filters.standard.sizeRange?.min || ''"
               @input="updateSizeRange('min', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
-              placeholder="Min (bytes)"
+              :placeholder="$gettext('Min (bytes)')"
               min="0"
             />
-            <span>to</span>
+            <span>{{ $gettext('to') }}</span>
             <input
               type="number"
               :value="filters.standard.sizeRange?.max || ''"
               @input="updateSizeRange('max', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
-              placeholder="Max (bytes)"
+              :placeholder="$gettext('Max (bytes)')"
               min="0"
             />
           </div>
@@ -71,7 +71,7 @@
 
         <!-- Modified Date -->
         <div class="filter-row">
-          <label>Modified</label>
+          <label>{{ $gettext('Modified') }}</label>
           <div class="range-inputs">
             <input
               type="date"
@@ -79,7 +79,7 @@
               @input="updateModifiedRange('start', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
             />
-            <span>to</span>
+            <span>{{ $gettext('to') }}</span>
             <input
               type="date"
               :value="filters.standard.modifiedRange?.end || ''"
@@ -91,25 +91,25 @@
 
         <!-- Tags -->
         <div class="filter-row">
-          <label>Tags</label>
+          <label>{{ $gettext('Tags') }}</label>
           <input
             type="text"
             :value="filters.standard.tags || ''"
             @input="emit('update:standard', { ...filters.standard, tags: ($event.target as HTMLInputElement).value || undefined })"
             @keyup.enter="emit('search')"
-            placeholder="Comma-separated tags"
+            :placeholder="$gettext('Comma-separated tags')"
           />
         </div>
 
         <!-- Content -->
         <div class="filter-row">
-          <label>Content</label>
+          <label>{{ $gettext('Content') }}</label>
           <input
             type="text"
             :value="filters.standard.content || ''"
             @input="emit('update:standard', { ...filters.standard, content: ($event.target as HTMLInputElement).value || undefined })"
             @keyup.enter="emit('search')"
-            placeholder="Full-text content search"
+            :placeholder="$gettext('Full-text content search')"
           />
         </div>
       </div>
@@ -118,19 +118,19 @@
     <!-- Photo/EXIF Filters Section -->
     <div class="filter-section">
       <h4 class="section-title" @click="showPhoto = !showPhoto">
-        {{ showPhoto ? '▼' : '▶' }} Photo / EXIF Filters
+        {{ showPhoto ? '▼' : '▶' }} {{ $gettext('Photo / EXIF Filters') }}
       </h4>
-      
+
       <div v-if="showPhoto" class="filter-group">
         <!-- Camera Make -->
         <div class="filter-row">
-          <label>Camera Make</label>
+          <label>{{ $gettext('Camera Make') }}</label>
           <input
             type="text"
             :value="filters.photo.cameraMake || ''"
             @input="emit('update:photo', { ...filters.photo, cameraMake: ($event.target as HTMLInputElement).value || undefined })"
             @keyup.enter="emit('search')"
-            placeholder="e.g., Canon, Nikon, samsung"
+            :placeholder="$gettext('e.g., Canon, Nikon, samsung')"
             list="camera-makes"
           />
           <datalist id="camera-makes">
@@ -140,13 +140,13 @@
 
         <!-- Camera Model -->
         <div class="filter-row">
-          <label>Camera Model</label>
+          <label>{{ $gettext('Camera Model') }}</label>
           <input
             type="text"
             :value="filters.photo.cameraModel || ''"
             @input="emit('update:photo', { ...filters.photo, cameraModel: ($event.target as HTMLInputElement).value || undefined })"
             @keyup.enter="emit('search')"
-            placeholder="e.g., EOS R5, SM-G998B"
+            :placeholder="$gettext('e.g., EOS R5, SM-G998B')"
             list="camera-models"
           />
           <datalist id="camera-models">
@@ -156,7 +156,7 @@
 
         <!-- Date Taken -->
         <div class="filter-row">
-          <label>Date Taken</label>
+          <label>{{ $gettext('Date Taken') }}</label>
           <div class="range-inputs">
             <input
               type="date"
@@ -164,7 +164,7 @@
               @input="updateTakenDateRange('start', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
             />
-            <span>to</span>
+            <span>{{ $gettext('to') }}</span>
             <input
               type="date"
               :value="filters.photo.takenDateRange?.end || ''"
@@ -176,23 +176,23 @@
 
         <!-- ISO -->
         <div class="filter-row">
-          <label>ISO</label>
+          <label>{{ $gettext('ISO') }}</label>
           <div class="range-inputs">
             <input
               type="number"
               :value="filters.photo.isoRange?.min || ''"
               @input="updateIsoRange('min', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
-              placeholder="Min"
+              :placeholder="$gettext('Min')"
               min="0"
             />
-            <span>to</span>
+            <span>{{ $gettext('to') }}</span>
             <input
               type="number"
               :value="filters.photo.isoRange?.max || ''"
               @input="updateIsoRange('max', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
-              placeholder="Max"
+              :placeholder="$gettext('Max')"
               min="0"
             />
           </div>
@@ -200,7 +200,7 @@
 
         <!-- Aperture -->
         <div class="filter-row">
-          <label>Aperture (f/)</label>
+          <label>{{ $gettext('Aperture (f/)') }}</label>
           <div class="range-inputs">
             <input
               type="number"
@@ -208,17 +208,17 @@
               :value="filters.photo.fNumberRange?.min || ''"
               @input="updateFNumberRange('min', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
-              placeholder="Min"
+              :placeholder="$gettext('Min')"
               min="0"
             />
-            <span>to</span>
+            <span>{{ $gettext('to') }}</span>
             <input
               type="number"
               step="0.1"
               :value="filters.photo.fNumberRange?.max || ''"
               @input="updateFNumberRange('max', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
-              placeholder="Max"
+              :placeholder="$gettext('Max')"
               min="0"
             />
           </div>
@@ -226,23 +226,23 @@
 
         <!-- Focal Length -->
         <div class="filter-row">
-          <label>Focal Length (mm)</label>
+          <label>{{ $gettext('Focal Length (mm)') }}</label>
           <div class="range-inputs">
             <input
               type="number"
               :value="filters.photo.focalLengthRange?.min || ''"
               @input="updateFocalLengthRange('min', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
-              placeholder="Min"
+              :placeholder="$gettext('Min')"
               min="0"
             />
-            <span>to</span>
+            <span>{{ $gettext('to') }}</span>
             <input
               type="number"
               :value="filters.photo.focalLengthRange?.max || ''"
               @input="updateFocalLengthRange('max', ($event.target as HTMLInputElement).value)"
               @keyup.enter="emit('search')"
-              placeholder="Max"
+              :placeholder="$gettext('Max')"
               min="0"
             />
           </div>
@@ -253,7 +253,7 @@
     <!-- KQL Query Section -->
     <div class="filter-section">
       <h4 class="section-title" @click="showKQL = !showKQL">
-        {{ showKQL ? '▼' : '▶' }} KQL Query
+        {{ showKQL ? '▼' : '▶' }} {{ $gettext('KQL Query') }}
       </h4>
 
       <div v-if="showKQL" class="kql-group">
@@ -264,18 +264,18 @@
             :value="kqlQuery"
             @input="emit('kql-input', ($event.target as HTMLInputElement).value)"
             @keyup.enter="emit('search')"
-            placeholder="Enter KQL query (e.g., name:*.pdf AND mediatype:document)"
+            :placeholder="$gettext('Enter KQL query (e.g., name:*.pdf AND mediatype:document)')"
           />
           <button
             class="kql-apply-btn"
             @click="emit('apply-kql')"
-            title="Parse KQL and populate filters"
+            :title="$gettext('Parse KQL and populate filters')"
           >
-            ↑ Apply to Filters
+            ↑ {{ $gettext('Apply to Filters') }}
           </button>
         </div>
         <p class="kql-hint">
-          Paste or type KQL directly. Click "Apply to Filters" to populate filter fields.
+          {{ $gettext('Paste or type KQL directly. Click "Apply to Filters" to populate filter fields.') }}
         </p>
       </div>
     </div>
@@ -286,6 +286,9 @@
 import { ref, computed, watch } from 'vue'
 import type { SearchFilters } from '../types'
 import { KNOWN_CAMERA_MAKES, COMMON_MEDIA_TYPES } from '../types'
+import { useTranslations } from '../composables/useTranslations'
+
+const { $gettext } = useTranslations()
 
 const props = defineProps<{
   filters: SearchFilters
@@ -343,58 +346,56 @@ watch(showPhoto, async (isShown) => {
   }
 })
 
-// Helper functions for range updates
-function updateSizeRange(field: 'min' | 'max', value: string): void {
-  const numValue = value ? parseInt(value, 10) : undefined
-  const current = props.filters.standard.sizeRange || {}
-  emit('update:standard', {
-    ...props.filters.standard,
-    sizeRange: { ...current, [field]: numValue }
-  })
+// Generic range update helper
+type RangeType = 'numeric' | 'float' | 'date'
+type FilterCategory = 'standard' | 'photo'
+
+function updateRange(
+  category: FilterCategory,
+  rangeKey: string,
+  field: 'min' | 'max' | 'start' | 'end',
+  value: string,
+  type: RangeType = 'numeric'
+): void {
+  const filters = category === 'standard' ? props.filters.standard : props.filters.photo
+  const current = (filters as any)[rangeKey] || (type === 'date' ? { start: '', end: '' } : {})
+
+  let parsedValue: string | number | undefined
+  if (type === 'date') {
+    parsedValue = value || ''
+  } else if (type === 'float') {
+    parsedValue = value ? parseFloat(value) : undefined
+  } else {
+    parsedValue = value ? parseInt(value, 10) : undefined
+  }
+
+  const updated = { ...current, [field]: parsedValue }
+
+  if (category === 'standard') {
+    emit('update:standard', { ...props.filters.standard, [rangeKey]: updated })
+  } else {
+    emit('update:photo', { ...props.filters.photo, [rangeKey]: updated })
+  }
 }
 
-function updateModifiedRange(field: 'start' | 'end', value: string): void {
-  const current = props.filters.standard.modifiedRange || { start: '', end: '' }
-  emit('update:standard', {
-    ...props.filters.standard,
-    modifiedRange: { ...current, [field]: value || '' }
-  })
-}
+// Convenience wrappers for template readability
+const updateSizeRange = (field: 'min' | 'max', value: string) =>
+  updateRange('standard', 'sizeRange', field, value, 'numeric')
 
-function updateTakenDateRange(field: 'start' | 'end', value: string): void {
-  const current = props.filters.photo.takenDateRange || { start: '', end: '' }
-  emit('update:photo', {
-    ...props.filters.photo,
-    takenDateRange: { ...current, [field]: value || '' }
-  })
-}
+const updateModifiedRange = (field: 'start' | 'end', value: string) =>
+  updateRange('standard', 'modifiedRange', field, value, 'date')
 
-function updateIsoRange(field: 'min' | 'max', value: string): void {
-  const numValue = value ? parseInt(value, 10) : undefined
-  const current = props.filters.photo.isoRange || {}
-  emit('update:photo', {
-    ...props.filters.photo,
-    isoRange: { ...current, [field]: numValue }
-  })
-}
+const updateTakenDateRange = (field: 'start' | 'end', value: string) =>
+  updateRange('photo', 'takenDateRange', field, value, 'date')
 
-function updateFNumberRange(field: 'min' | 'max', value: string): void {
-  const numValue = value ? parseFloat(value) : undefined
-  const current = props.filters.photo.fNumberRange || {}
-  emit('update:photo', {
-    ...props.filters.photo,
-    fNumberRange: { ...current, [field]: numValue }
-  })
-}
+const updateIsoRange = (field: 'min' | 'max', value: string) =>
+  updateRange('photo', 'isoRange', field, value, 'numeric')
 
-function updateFocalLengthRange(field: 'min' | 'max', value: string): void {
-  const numValue = value ? parseFloat(value) : undefined
-  const current = props.filters.photo.focalLengthRange || {}
-  emit('update:photo', {
-    ...props.filters.photo,
-    focalLengthRange: { ...current, [field]: numValue }
-  })
-}
+const updateFNumberRange = (field: 'min' | 'max', value: string) =>
+  updateRange('photo', 'fNumberRange', field, value, 'float')
+
+const updateFocalLengthRange = (field: 'min' | 'max', value: string) =>
+  updateRange('photo', 'focalLengthRange', field, value, 'float')
 </script>
 
 <style scoped>

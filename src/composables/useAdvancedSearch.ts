@@ -8,109 +8,19 @@ import { useClientService, useConfigStore, useSpacesStore } from '@ownclouders/w
 import type { Resource } from '@ownclouders/web-client'
 import type {
   SearchFilters,
-  SearchResults,
   AdvancedSearchState,
   ActiveFilter,
-  DateRange,
-  NumericRange,
   SortConfig,
   ResultViewMode,
 } from '../types'
 import { createEmptyFilters, createEmptyResults } from '../types'
-
-/**
- * Characters that need escaping in KQL/Bleve queries
- */
-const KQL_SPECIAL_CHARS = /[+\-=&|><!(){}[\]^"~*?:\\/\s]/g
-
-/**
- * Escape special characters in KQL query values
- */
-function escapeKQL(value: string): string {
-  // Don't escape wildcards if they appear to be intentional
-  if (value.includes('*') || value.includes('?')) {
-    // Only escape other special chars, keep wildcards
-    return value.replace(/[+\-=&|><!(){}[\]^"~:\\/]/g, '\\$&')
-  }
-  return value.replace(KQL_SPECIAL_CHARS, '\\$&')
-}
-
-/**
- * Format date for KQL (YYYY-MM-DD)
- */
-function formatDateForKQL(date: string): string {
-  // Ensure proper format
-  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return date
-  }
-  // Try to parse and format
-  const d = new Date(date)
-  if (!isNaN(d.getTime())) {
-    return d.toISOString().split('T')[0]
-  }
-  return date
-}
-
-/**
- * Build a range query for KQL using comparison operators
- * oCIS KQL doesn't support [x TO y] syntax, use >= and <= instead
- */
-function buildRangeQuery(field: string, range: NumericRange): string | null {
-  if (range.min === undefined && range.max === undefined) {
-    return null
-  }
-
-  const parts: string[] = []
-  if (range.min !== undefined) {
-    parts.push(`${field}>=${range.min}`)
-  }
-  if (range.max !== undefined) {
-    parts.push(`${field}<=${range.max}`)
-  }
-
-  // If both min and max, wrap in parentheses
-  if (parts.length === 2) {
-    return `(${parts.join(' AND ')})`
-  }
-  return parts[0]
-}
-
-/**
- * Build a date range query for KQL using comparison operators
- * oCIS KQL doesn't support [x TO y] syntax, use >= and <= instead
- */
-function buildDateRangeQuery(field: string, range: DateRange): string | null {
-  if (!range.start && !range.end) {
-    return null
-  }
-
-  const parts: string[] = []
-  if (range.start) {
-    parts.push(`${field}>=${formatDateForKQL(range.start)}`)
-  }
-  if (range.end) {
-    parts.push(`${field}<=${formatDateForKQL(range.end)}`)
-  }
-
-  // If both start and end, wrap in parentheses
-  if (parts.length === 2) {
-    return `(${parts.join(' AND ')})`
-  }
-  return parts[0]
-}
-
-/**
- * Escape special XML characters in a string
- * Required when embedding KQL in XML body (< > & need escaping)
- */
-function escapeXML(str: string): string {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-}
+import {
+  escapeXML,
+  buildStandardKQL,
+  buildPhotoKQL,
+  buildDateRangeQuery,
+  buildRangeQuery,
+} from '../utils/kql'
 
 /**
  * Parse WebDAV REPORT search response XML
@@ -195,97 +105,11 @@ export function useAdvancedSearch() {
    * Build KQL query string from current filters
    */
   const buildKQLQuery = computed(() => {
-    const parts: string[] = []
-    const { standard, photo, term, scope } = state.filters
-
-    // Basic text search term
-    if (term && term.trim()) {
-      // If term contains no field prefix, search in name
-      if (!term.includes(':')) {
-        parts.push(`name:*${escapeKQL(term.trim())}*`)
-      } else {
-        parts.push(term.trim())
-      }
-    }
-
-    // Standard filters
-    if (standard.name) {
-      parts.push(`name:${escapeKQL(standard.name)}`)
-    }
-
-    // Type field uses numeric values in Bleve index:
-    // 1 = RESOURCE_TYPE_FILE, 2 = RESOURCE_TYPE_CONTAINER (folder)
-    if (standard.type === 'file') {
-      parts.push('Type:1')
-    } else if (standard.type === 'folder') {
-      parts.push('Type:2')
-    }
-
-    if (standard.sizeRange) {
-      const sizeQuery = buildRangeQuery('size', standard.sizeRange)
-      if (sizeQuery) parts.push(sizeQuery)
-    }
-
-    if (standard.modifiedRange) {
-      const mtimeQuery = buildDateRangeQuery('mtime', standard.modifiedRange)
-      if (mtimeQuery) parts.push(mtimeQuery)
-    }
-
-    if (standard.mediaType) {
-      parts.push(`mediatype:${escapeKQL(standard.mediaType)}`)
-    }
-
-    if (standard.tags) {
-      // Split tags and join with OR
-      const tagList = standard.tags.split(',').map(t => t.trim()).filter(Boolean)
-      if (tagList.length === 1) {
-        parts.push(`tags:${escapeKQL(tagList[0])}`)
-      } else if (tagList.length > 1) {
-        const tagQuery = tagList.map(t => `tags:${escapeKQL(t)}`).join(' OR ')
-        parts.push(`(${tagQuery})`)
-      }
-    }
-
-    if (standard.content) {
-      parts.push(`content:${escapeKQL(standard.content)}`)
-    }
-
-    // Photo/EXIF filters
-    // KQL requires "photo." prefix for photo fields. The compiler maps:
-    // photo.cameramake -> photo.cameraMake (Bleve), photo.cameramodel -> photo.cameraModel, etc.
-    if (photo.cameraMake) {
-      parts.push(`photo.cameramake:${escapeKQL(photo.cameraMake)}`)
-    }
-
-    if (photo.cameraModel) {
-      parts.push(`photo.cameramodel:${escapeKQL(photo.cameraModel)}`)
-    }
-
-    if (photo.takenDateRange) {
-      const takenQuery = buildDateRangeQuery('photo.takendatetime', photo.takenDateRange)
-      if (takenQuery) parts.push(takenQuery)
-    }
-
-    if (photo.isoRange) {
-      const isoQuery = buildRangeQuery('photo.iso', photo.isoRange)
-      if (isoQuery) parts.push(isoQuery)
-    }
-
-    if (photo.fNumberRange) {
-      const fQuery = buildRangeQuery('photo.fnumber', photo.fNumberRange)
-      if (fQuery) parts.push(fQuery)
-    }
-
-    if (photo.focalLengthRange) {
-      const flQuery = buildRangeQuery('photo.focallength', photo.focalLengthRange)
-      if (flQuery) parts.push(flQuery)
-    }
-
-    if (photo.orientation !== undefined && photo.orientation > 0) {
-      parts.push(`photo.orientation:${photo.orientation}`)
-    }
-
-    // Combine all parts with AND
+    const { standard, photo, term } = state.filters
+    const parts = [
+      ...buildStandardKQL(standard, term),
+      ...buildPhotoKQL(photo)
+    ]
     return parts.length > 0 ? parts.join(' AND ') : '*'
   })
 
@@ -545,54 +369,29 @@ export function useAdvancedSearch() {
     state.kqlQuery = ''
   }
 
+  // Filter registry: maps filter ID to reset action
+  const filterResetRegistry: Record<string, () => void> = {
+    term: () => { state.filters.term = '' },
+    name: () => { state.filters.standard.name = undefined },
+    type: () => { state.filters.standard.type = '' },
+    mediaType: () => { state.filters.standard.mediaType = undefined },
+    tags: () => { state.filters.standard.tags = undefined },
+    size: () => { state.filters.standard.sizeRange = undefined },
+    mtime: () => { state.filters.standard.modifiedRange = undefined },
+    content: () => { state.filters.standard.content = undefined },
+    cameraMake: () => { state.filters.photo.cameraMake = undefined },
+    cameraModel: () => { state.filters.photo.cameraModel = undefined },
+    takenDate: () => { state.filters.photo.takenDateRange = undefined },
+    iso: () => { state.filters.photo.isoRange = undefined },
+    fNumber: () => { state.filters.photo.fNumberRange = undefined },
+    focalLength: () => { state.filters.photo.focalLengthRange = undefined },
+  }
+
   /**
    * Remove a specific filter by ID
    */
   function removeFilter(filterId: string): void {
-    switch (filterId) {
-      case 'term':
-        state.filters.term = ''
-        break
-      case 'name':
-        state.filters.standard.name = undefined
-        break
-      case 'type':
-        state.filters.standard.type = ''
-        break
-      case 'mediaType':
-        state.filters.standard.mediaType = undefined
-        break
-      case 'tags':
-        state.filters.standard.tags = undefined
-        break
-      case 'size':
-        state.filters.standard.sizeRange = undefined
-        break
-      case 'mtime':
-        state.filters.standard.modifiedRange = undefined
-        break
-      case 'content':
-        state.filters.standard.content = undefined
-        break
-      case 'cameraMake':
-        state.filters.photo.cameraMake = undefined
-        break
-      case 'cameraModel':
-        state.filters.photo.cameraModel = undefined
-        break
-      case 'takenDate':
-        state.filters.photo.takenDateRange = undefined
-        break
-      case 'iso':
-        state.filters.photo.isoRange = undefined
-        break
-      case 'fNumber':
-        state.filters.photo.fNumberRange = undefined
-        break
-      case 'focalLength':
-        state.filters.photo.focalLengthRange = undefined
-        break
-    }
+    filterResetRegistry[filterId]?.()
   }
 
   /**

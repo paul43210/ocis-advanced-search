@@ -87,17 +87,17 @@
 
 ## Technical Debt
 
-- [ ] Add unit tests for useAdvancedSearch composable
-- [ ] Add unit tests for KQL query builder
+- [x] Add unit tests for useAdvancedSearch composable (64 tests in `src/composables/useAdvancedSearch.test.ts`)
+- [x] Add unit tests for KQL query builder (51 tests in `src/utils/kql.test.ts`)
 - [ ] Add e2e tests for search flows
 - [ ] Accessibility audit (keyboard navigation, screen readers)
-- [ ] i18n/localization support
+- [x] i18n/localization support (vue3-gettext integration, all UI strings wrapped with `$gettext`)
 - [ ] Mobile responsiveness improvements
-- [ ] **Code complexity audit** - Review functions for cognitive complexity (target: <15 per function)
-  - Run ESLint complexity rules (`complexity`, `max-depth`, `max-nested-callbacks`)
-  - Review large components: `AdvancedSearchView.vue`, `SearchFilters.vue`, `useAdvancedSearch.ts`
-  - Extract helper functions from deeply nested conditionals (especially KQL query building)
-  - Align with SonarQube standards before upstream contribution
+- [x] **Code complexity audit** - Review functions for cognitive complexity (target: <15 per function)
+  - Extracted `buildStandardKQL()` and `buildPhotoKQL()` helpers
+  - Replaced `removeFilter` switch with registry-based lookup
+  - Created generic `updateRange()` helper in SearchFilters.vue
+  - Extracted URL helpers (`getServerUrl`, `encodePath`, `buildDavUrl`) in AdvancedSearchView.vue
 
 ---
 

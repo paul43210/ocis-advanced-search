@@ -2,49 +2,55 @@
   <div class="search-stats">
     <div class="stats-header" @click="toggleExpanded">
       <span class="stats-icon">{{ expanded ? '▼' : '▶' }}</span>
-      <h4>Search Status</h4>
-      <span v-if="loading" class="loading-indicator">Loading...</span>
+      <h4>{{ $gettext('Search Status') }}</h4>
+      <span v-if="loading" class="loading-indicator">{{ $gettext('Loading...') }}</span>
     </div>
 
     <div v-if="expanded" class="stats-content">
       <!-- Index Status -->
       <div class="stats-section">
-        <h5>Index Status</h5>
+        <h5>{{ $gettext('Index Status') }}</h5>
         <div class="stats-grid">
           <div class="stat-item">
-            <span class="stat-label">Full-Text Search</span>
+            <span class="stat-label">{{ $gettext('Full-Text Search') }}</span>
             <span :class="['stat-value', stats.fullTextEnabled ? 'enabled' : 'disabled']">
-              {{ stats.fullTextEnabled ? 'Enabled' : 'Disabled' }}
+              {{ stats.fullTextEnabled ? $gettext('Enabled') : $gettext('Disabled') }}
             </span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Tika Extraction</span>
+            <span class="stat-label">{{ $gettext('Tika Extraction') }}</span>
             <span :class="['stat-value', stats.tikaEnabled ? 'enabled' : 'disabled']">
-              {{ stats.tikaEnabled ? 'Enabled' : 'Disabled' }}
+              {{ stats.tikaEnabled ? $gettext('Enabled') : $gettext('Disabled') }}
             </span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Index Engine</span>
+            <span class="stat-label">{{ $gettext('OCR (Image Text)') }}</span>
+            <span :class="['stat-value', stats.ocrEnabled ? 'enabled' : 'disabled']">
+              {{ stats.ocrEnabled ? $gettext('Enabled') : $gettext('Disabled') }}
+            </span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">{{ $gettext('Index Engine') }}</span>
             <span class="stat-value">{{ stats.indexEngine }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Total Indexed Files</span>
-            <span class="stat-value">{{ stats.totalIndexedFiles !== null ? stats.totalIndexedFiles.toLocaleString() : 'Counting...' }}</span>
+            <span class="stat-label">{{ $gettext('Total Indexed Files') }}</span>
+            <span class="stat-value">{{ stats.totalIndexedFiles !== null ? stats.totalIndexedFiles.toLocaleString() : $gettext('Counting...') }}</span>
           </div>
         </div>
       </div>
 
       <!-- Space Stats -->
       <div class="stats-section">
-        <h5>Available Spaces</h5>
+        <h5>{{ $gettext('Available Spaces') }}</h5>
         <div class="stats-grid">
           <div class="stat-item">
-            <span class="stat-label">Total Spaces</span>
+            <span class="stat-label">{{ $gettext('Total Spaces') }}</span>
             <span class="stat-value">{{ stats.totalSpaces }}</span>
           </div>
           <div class="stat-item">
-            <span class="stat-label">Personal Space</span>
-            <span class="stat-value">{{ stats.personalSpaceName || 'N/A' }}</span>
+            <span class="stat-label">{{ $gettext('Personal Space') }}</span>
+            <span class="stat-value">{{ stats.personalSpaceName || $gettext('N/A') }}</span>
           </div>
         </div>
         <div v-if="stats.spaces && stats.spaces.length > 0" class="spaces-list">
@@ -52,21 +58,21 @@
             <span class="space-icon">{{ getSpaceIcon(space.driveType) }}</span>
             <span class="space-name">{{ space.name }}</span>
             <span class="space-type">{{ space.driveType }}</span>
-            <span v-if="space.used" class="space-used">{{ formatBytes(space.used) }} used</span>
+            <span v-if="space.used" class="space-used">{{ formatBytes(space.used) }} {{ $gettext('used') }}</span>
           </div>
         </div>
       </div>
 
       <!-- Server Info -->
       <div class="stats-section">
-        <h5>Server Information</h5>
+        <h5>{{ $gettext('Server Information') }}</h5>
         <div class="stats-grid">
           <div class="stat-item">
-            <span class="stat-label">Server URL</span>
+            <span class="stat-label">{{ $gettext('Server URL') }}</span>
             <span class="stat-value path">{{ stats.serverUrl }}</span>
           </div>
           <div v-if="stats.version" class="stat-item">
-            <span class="stat-label">oCIS Version</span>
+            <span class="stat-label">{{ $gettext('oCIS Version') }}</span>
             <span class="stat-value">{{ stats.version }}</span>
           </div>
         </div>
@@ -75,7 +81,7 @@
       <!-- Refresh Button -->
       <div class="stats-actions">
         <button class="refresh-btn" @click="loadStats" :disabled="loading">
-          {{ loading ? 'Loading...' : 'Refresh Stats' }}
+          {{ loading ? $gettext('Loading...') : $gettext('Refresh Stats') }}
         </button>
       </div>
     </div>
@@ -85,6 +91,9 @@
 <script setup lang="ts">
 import { ref, reactive, watch } from 'vue'
 import { useClientService, useConfigStore, useSpacesStore } from '@ownclouders/web-pkg'
+import { useTranslations } from '../composables/useTranslations'
+
+const { $gettext } = useTranslations()
 
 interface SpaceInfo {
   id: string
@@ -96,6 +105,7 @@ interface SpaceInfo {
 interface SearchStatsData {
   fullTextEnabled: boolean
   tikaEnabled: boolean
+  ocrEnabled: boolean
   indexEngine: string
   totalIndexedFiles: number | null
   totalSpaces: number
@@ -114,6 +124,7 @@ const loading = ref(false)
 const stats = reactive<SearchStatsData>({
   fullTextEnabled: false,
   tikaEnabled: false,
+  ocrEnabled: false,
   indexEngine: 'Bleve (Scorch)',
   totalIndexedFiles: null,
   totalSpaces: 0,
@@ -197,11 +208,40 @@ async function loadStats(): Promise<void> {
       // The presence of fullTextSearch usually means Tika is enabled
       stats.tikaEnabled = stats.fullTextEnabled
 
-      console.log('[SearchStats] Config loaded:', { fullText: stats.fullTextEnabled })
+      // Check for OCR in config
+      // OCR is typically enabled via SEARCH_EXTRACTOR_TIKA_ENABLED_OCR environment variable
+      if (config?.options?.fullTextSearch?.ocr !== undefined) {
+        stats.ocrEnabled = config.options.fullTextSearch.ocr === true
+      } else if (config?.options?.ocr !== undefined) {
+        stats.ocrEnabled = config.options.ocr === true
+      } else {
+        // OCR requires additional setup (Tesseract), so default to false unless confirmed
+        stats.ocrEnabled = false
+      }
+
+      console.log('[SearchStats] Config loaded:', { fullText: stats.fullTextEnabled, ocr: stats.ocrEnabled })
     } catch (err) {
       console.log('[SearchStats] Could not fetch config.json, assuming defaults')
       stats.fullTextEnabled = true
       stats.tikaEnabled = true
+      stats.ocrEnabled = false
+    }
+
+    // Try to detect OCR from capabilities
+    try {
+      const capResponse = await clientService.httpAuthenticated.get(
+        `${serverUrl}/ocs/v1.php/cloud/capabilities?format=json`
+      )
+      const caps = capResponse.data?.ocs?.data?.capabilities
+
+      // Check for search capabilities that might indicate OCR
+      if (caps?.search?.ocr !== undefined) {
+        stats.ocrEnabled = caps.search.ocr === true
+      } else if (caps?.files?.content_search?.ocr !== undefined) {
+        stats.ocrEnabled = caps.files.content_search.ocr === true
+      }
+    } catch (err) {
+      // Already have defaults set
     }
 
     // Try to get version from capabilities

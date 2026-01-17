@@ -2,20 +2,20 @@
   <div class="advanced-search-app">
     <!-- Header -->
     <div class="search-header">
-      <h1>Advanced Search</h1>
+      <h1>{{ $gettext('Advanced Search') }}</h1>
       <div class="header-actions">
         <button
           class="btn btn-secondary"
           @click="showSavedQueries = !showSavedQueries"
         >
-          📁 Saved Searches ({{ savedQueries.length }})
+          📁 {{ $gettext('Saved Searches') }} ({{ savedQueries.length }})
         </button>
         <button
           v-if="activeFilters.length > 0"
           class="btn btn-secondary"
           @click="showSaveDialog = true"
         >
-          💾 Save Search
+          💾 {{ $gettext('Save Search') }}
         </button>
       </div>
     </div>
@@ -27,18 +27,18 @@
           type="text"
           v-model="searchTerm"
           class="search-input"
-          placeholder="Search files... (or use filters below)"
+          :placeholder="$gettext('Search files... (or use filters below)')"
           @keyup.enter="handleSearch"
         />
         <button class="search-btn" @click="handleSearch" :disabled="loading">
-          {{ loading ? '⏳' : '🔍' }} Search
+          {{ loading ? '⏳' : '🔍' }} {{ $gettext('Search') }}
         </button>
       </div>
       <button
         class="toggle-filters-btn"
         @click="showFilters = !showFilters"
       >
-        {{ showFilters ? '▼' : '▶' }} Advanced
+        {{ showFilters ? '▼' : '▶' }} {{ $gettext('Advanced') }}
       </button>
     </div>
 
@@ -51,7 +51,7 @@
         @remove="removeFilter(filter.id)"
       />
       <button class="clear-all-btn" @click="clearFilters">
-        Clear All
+        {{ $gettext('Clear All') }}
       </button>
     </div>
 
@@ -75,27 +75,27 @@
       <!-- Results header -->
       <div v-if="state.results" class="results-header">
         <span class="results-count">
-          {{ state.results.totalCount ?? state.results.items.length }} results
+          {{ $ngettext('%{count} result', '%{count} results', state.results.totalCount ?? state.results.items.length).replace('%{count}', String(state.results.totalCount ?? state.results.items.length)) }}
         </span>
         <div class="view-controls">
           <button
             :class="['view-btn', { active: state.viewMode === 'list' }]"
             @click="setViewMode('list')"
-            title="List view"
+            :title="$gettext('List view')"
           >
             ☰
           </button>
           <button
             :class="['view-btn', { active: state.viewMode === 'grid' }]"
             @click="setViewMode('grid')"
-            title="Grid view"
+            :title="$gettext('Grid view')"
           >
             ⊞
           </button>
           <button
             :class="['view-btn', { active: state.viewMode === 'table' }]"
             @click="setViewMode('table')"
-            title="Table view"
+            :title="$gettext('Table view')"
           >
             ▦
           </button>
@@ -105,7 +105,7 @@
       <!-- Loading state -->
       <div v-if="loading" class="loading-state">
         <span class="spinner"></span>
-        Searching...
+        {{ $gettext('Searching...') }}
       </div>
 
       <!-- Error state -->
@@ -116,8 +116,8 @@
       <!-- Empty state -->
       <div v-else-if="state.results && state.results.items.length === 0" class="empty-state">
         <span class="empty-icon">🔍</span>
-        <p>No results found</p>
-        <p class="empty-hint">Try adjusting your search terms or filters</p>
+        <p>{{ $gettext('No results found') }}</p>
+        <p class="empty-hint">{{ $gettext('Try adjusting your search terms or filters') }}</p>
       </div>
 
       <!-- Results display -->
@@ -132,7 +132,7 @@
       <!-- Load more -->
       <div v-if="state.results?.hasMore" class="load-more">
         <button class="btn btn-secondary" @click="loadMore" :disabled="loading">
-          Load More
+          {{ $gettext('Load More') }}
         </button>
       </div>
     </div>
@@ -143,12 +143,12 @@
     <!-- Saved queries sidebar -->
     <div v-if="showSavedQueries" class="saved-queries-panel">
       <div class="panel-header">
-        <h3>Saved Searches</h3>
+        <h3>{{ $gettext('Saved Searches') }}</h3>
         <button class="close-btn" @click="showSavedQueries = false">×</button>
       </div>
       <div v-if="savedQueries.length === 0" class="no-saved">
-        <p>No saved searches yet</p>
-        <p class="hint">Create a search and click "Save Search" to save it.</p>
+        <p>{{ $gettext('No saved searches yet') }}</p>
+        <p class="hint">{{ $gettext('Create a search and click "Save Search" to save it.') }}</p>
       </div>
       <ul v-else class="saved-list">
         <li
@@ -168,24 +168,24 @@
     <!-- Save dialog -->
     <div v-if="showSaveDialog" class="modal-overlay" @click.self="showSaveDialog = false">
       <div class="modal-dialog">
-        <h3>Save Search</h3>
+        <h3>{{ $gettext('Save Search') }}</h3>
         <input
           type="text"
           v-model="saveQueryName"
-          placeholder="Enter a name for this search"
+          :placeholder="$gettext('Enter a name for this search')"
           class="save-input"
           @keyup.enter="handleSaveQuery"
         />
         <div class="modal-actions">
           <button class="btn btn-secondary" @click="showSaveDialog = false">
-            Cancel
+            {{ $gettext('Cancel') }}
           </button>
           <button
             class="btn btn-primary"
             @click="handleSaveQuery"
             :disabled="!saveQueryName.trim()"
           >
-            Save
+            {{ $gettext('Save') }}
           </button>
         </div>
       </div>
@@ -207,12 +207,16 @@ import { ref, computed, onMounted, watch } from 'vue'
 import type { Resource } from '@ownclouders/web-client'
 import { useAdvancedSearch } from '../composables/useAdvancedSearch'
 import { useSearchHistory } from '../composables/useSearchHistory'
+import { useTranslations } from '../composables/useTranslations'
 import type { SavedQuery } from '../types'
 import SearchFilters from '../components/SearchFilters.vue'
 import FilterChip from '../components/FilterChip.vue'
 import SearchResults from '../components/SearchResults.vue'
 import SearchStats from '../components/SearchStats.vue'
 import ResultContextMenu from '../components/ResultContextMenu.vue'
+
+// Translations
+const { $gettext, $ngettext } = useTranslations()
 
 // Props (for saved query route)
 const props = defineProps<{
@@ -258,6 +262,22 @@ const contextMenuPosition = ref({ x: 0, y: 0 })
 
 // Computed
 const loading = computed(() => state.loading)
+
+// URL helper functions
+function getServerUrl(): string {
+  return ((state as any).serverUrl || window.location.origin).replace(/\/$/, '')
+}
+
+function encodePath(path: string): string {
+  return path.split('/').map(s => encodeURIComponent(s)).join('/')
+}
+
+function buildDavUrl(item: Resource): string {
+  const serverUrl = getServerUrl()
+  const spaceId = (item as any).spaceId || ''
+  const itemPath = (item as any).path || item.name || ''
+  return `${serverUrl}/dav/spaces/${encodeURIComponent(spaceId)}${encodePath(itemPath)}`
+}
 
 // Watch for search term changes
 watch(searchTerm, (newTerm) => {
@@ -308,16 +328,7 @@ async function handleContextAction(action: string, item: Resource): Promise<void
 
 async function downloadItem(item: Resource): Promise<void> {
   try {
-    const serverUrl = state.serverUrl || window.location.origin
-    const spaceId = (item as any).spaceId || ''
-    const itemPath = (item as any).path || item.name || ''
-    const encodedPath = itemPath.split('/').map((s: string) => encodeURIComponent(s)).join('/')
-    const fetchUrl = `${serverUrl}/dav/spaces/${encodeURIComponent(spaceId)}${encodedPath}`
-
-    const response = await fetch(fetchUrl, {
-      credentials: 'include'
-    })
-
+    const response = await fetch(buildDavUrl(item), { credentials: 'include' })
     if (!response.ok) throw new Error('Download failed')
 
     const blob = await response.blob()
@@ -336,46 +347,34 @@ async function downloadItem(item: Resource): Promise<void> {
 }
 
 function openInFiles(item: Resource): void {
-  const serverUrl = (state.serverUrl || window.location.origin).replace(/\/$/, '')
+  const serverUrl = getServerUrl()
   const fileId = (item as any).fileId || item.id || ''
   const filePath = (item as any).path || item.name || ''
-
-  // Get the drive alias from the space (e.g., "personal/paul")
   const driveAlias = (item as any).driveAlias || 'personal/home'
 
-  // Build the full path for preview URL: driveAlias + filePath
+  // Build paths for preview URL
   const fullPath = `${driveAlias}${filePath}`
-  const encodedFullPath = fullPath.split('/').map((s: string) => encodeURIComponent(s)).join('/')
-
-  // Get folder path (without filename) for contextRouteParams
   const lastSlash = filePath.lastIndexOf('/')
   const folderPath = lastSlash > 0 ? filePath.substring(0, lastSlash) : ''
-  const driveAliasAndItem = `${driveAlias}${folderPath}`
-
-  // Get parent folder's fileId from parentReference if available
   const parentId = (item as any).parentReference?.id || (item as any).parentId || ''
 
-  // Build the preview URL with context parameters
-  const params = new URLSearchParams()
-  params.set('fileId', fileId)
-  params.set('contextRouteName', 'files-spaces-generic')
-  params.set('contextRouteParams.driveAliasAndItem', driveAliasAndItem)
+  // Build preview URL with context parameters
+  const params = new URLSearchParams({
+    fileId,
+    contextRouteName: 'files-spaces-generic',
+    'contextRouteParams.driveAliasAndItem': `${driveAlias}${folderPath}`
+  })
   if (parentId) {
     params.set('contextRouteQuery.fileId', parentId)
   }
 
-  const previewUrl = `${serverUrl}/preview/${encodedFullPath}?${params.toString()}`
-  window.open(previewUrl, '_blank')
+  window.open(`${serverUrl}/preview/${encodePath(fullPath)}?${params}`, '_blank')
 }
 
 async function copyItemLink(item: Resource): Promise<void> {
   try {
-    const serverUrl = (state.serverUrl || window.location.origin).replace(/\/$/, '')
     const fileId = (item as any).fileId || item.id || ''
-
-    // Use the short /f/{fileId} format
-    const link = `${serverUrl}/f/${encodeURIComponent(fileId)}`
-
+    const link = `${getServerUrl()}/f/${encodeURIComponent(fileId)}`
     await navigator.clipboard.writeText(link)
     alert('Link copied to clipboard!')
   } catch (err) {
@@ -385,24 +384,14 @@ async function copyItemLink(item: Resource): Promise<void> {
 }
 
 async function confirmAndDelete(item: Resource): Promise<void> {
-  const confirmed = confirm(`Are you sure you want to delete "${item.name}"?`)
-  if (!confirmed) return
+  if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return
 
   try {
-    const serverUrl = state.serverUrl || window.location.origin
-    const spaceId = (item as any).spaceId || ''
-    const itemPath = (item as any).path || item.name || ''
-    const encodedPath = itemPath.split('/').map((s: string) => encodeURIComponent(s)).join('/')
-    const deleteUrl = `${serverUrl}/dav/spaces/${encodeURIComponent(spaceId)}${encodedPath}`
-
-    const response = await fetch(deleteUrl, {
+    const response = await fetch(buildDavUrl(item), {
       method: 'DELETE',
       credentials: 'include'
     })
-
     if (!response.ok) throw new Error('Delete failed')
-
-    // Refresh search results
     await executeSearch()
   } catch (err) {
     console.error('Failed to delete:', err)

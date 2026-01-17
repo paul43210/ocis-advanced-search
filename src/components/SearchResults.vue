@@ -15,7 +15,7 @@
         </div>
         <span class="item-size">{{ formatSize(item.size) }}</span>
         <span class="item-date">{{ formatDate(item.mdate) }}</span>
-        <button class="item-menu-btn" @click.stop="emit('context-menu', $event, item)" title="More actions">
+        <button class="item-menu-btn" @click.stop="emit('context-menu', $event, item)" :title="$gettext('More actions')">
           ⋮
         </button>
       </div>
@@ -31,7 +31,7 @@
       >
         <div class="grid-thumbnail">
           <span class="grid-icon">{{ getIcon(item) }}</span>
-          <button class="grid-menu-btn" @click.stop="emit('context-menu', $event, item)" title="More actions">
+          <button class="grid-menu-btn" @click.stop="emit('context-menu', $event, item)" :title="$gettext('More actions')">
             ⋮
           </button>
         </div>
@@ -43,13 +43,13 @@
     <table v-else-if="viewMode === 'table'" class="results-table">
       <thead>
         <tr>
-          <th>Name</th>
-          <th>Path</th>
-          <th>Type</th>
-          <th>Size</th>
-          <th>Modified</th>
-          <th v-if="hasPhotoItems">Camera</th>
-          <th v-if="hasPhotoItems">Date Taken</th>
+          <th>{{ $gettext('Name') }}</th>
+          <th>{{ $gettext('Path') }}</th>
+          <th>{{ $gettext('Type') }}</th>
+          <th>{{ $gettext('Size') }}</th>
+          <th>{{ $gettext('Modified') }}</th>
+          <th v-if="hasPhotoItems">{{ $gettext('Camera') }}</th>
+          <th v-if="hasPhotoItems">{{ $gettext('Date Taken') }}</th>
           <th class="th-actions"></th>
         </tr>
       </thead>
@@ -64,13 +64,13 @@
             {{ item.name }}
           </td>
           <td class="cell-path">{{ getPath(item) }}</td>
-          <td>{{ item.mimeType || 'folder' }}</td>
+          <td>{{ item.mimeType || $gettext('folder') }}</td>
           <td>{{ formatSize(item.size) }}</td>
           <td>{{ formatDate(item.mdate) }}</td>
           <td v-if="hasPhotoItems">{{ getCameraInfo(item) }}</td>
           <td v-if="hasPhotoItems">{{ getPhotoDate(item) }}</td>
           <td class="cell-actions">
-            <button class="item-menu-btn" @click.stop="emit('context-menu', $event, item)" title="More actions">
+            <button class="item-menu-btn" @click.stop="emit('context-menu', $event, item)" :title="$gettext('More actions')">
               ⋮
             </button>
           </td>
@@ -84,6 +84,9 @@
 import { computed } from 'vue'
 import type { Resource } from '@ownclouders/web-client'
 import type { ResultViewMode } from '../types'
+import { useTranslations } from '../composables/useTranslations'
+
+const { $gettext } = useTranslations()
 
 const props = defineProps<{
   items: Resource[]

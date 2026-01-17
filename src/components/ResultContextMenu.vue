@@ -3,20 +3,20 @@
     <div v-if="visible" class="context-menu" :style="menuPosition" ref="menuRef">
       <button class="menu-item" @click="handleAction('download')">
         <span class="menu-icon">⬇️</span>
-        <span>Download</span>
+        <span>{{ $gettext('Download') }}</span>
       </button>
       <button class="menu-item" @click="handleAction('openInFiles')">
         <span class="menu-icon">📁</span>
-        <span>Open in Files</span>
+        <span>{{ $gettext('Open in Files') }}</span>
       </button>
       <button class="menu-item" @click="handleAction('copyLink')">
         <span class="menu-icon">🔗</span>
-        <span>Copy Link</span>
+        <span>{{ $gettext('Copy Link') }}</span>
       </button>
       <div class="menu-divider"></div>
       <button class="menu-item menu-item-danger" @click="handleAction('delete')">
         <span class="menu-icon">🗑️</span>
-        <span>Delete</span>
+        <span>{{ $gettext('Delete') }}</span>
       </button>
     </div>
   </Teleport>
@@ -25,6 +25,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import type { Resource } from '@ownclouders/web-client'
+import { useTranslations } from '../composables/useTranslations'
+
+const { $gettext } = useTranslations()
 
 interface Props {
   visible: boolean

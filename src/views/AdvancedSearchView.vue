@@ -81,7 +81,7 @@
           @click="applyKqlToFilters"
           title="Parse KQL and populate filters"
         >
-          ↓ Apply to Filters
+          ↑ Apply to Filters
         </button>
       </div>
       <p class="kql-hint">

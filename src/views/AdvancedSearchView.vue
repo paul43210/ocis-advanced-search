@@ -64,10 +64,29 @@
       />
     </div>
 
-    <!-- KQL Query display (debug) -->
-    <div v-if="showKQL && kqlQuery" class="kql-display">
-      <strong>KQL:</strong>
-      <code>{{ kqlQuery }}</code>
+    <!-- KQL Query editor -->
+    <div v-if="showKQL" class="kql-editor">
+      <label class="kql-label">KQL Query:</label>
+      <div class="kql-input-row">
+        <input
+          type="text"
+          class="kql-input"
+          :value="kqlQuery"
+          @input="onKqlInput"
+          @keyup.enter="handleSearch"
+          placeholder="Enter KQL query (e.g., name:*.pdf AND mediatype:document)"
+        />
+        <button
+          class="kql-apply-btn"
+          @click="applyKqlToFilters"
+          title="Parse KQL and populate filters"
+        >
+          ↓ Apply to Filters
+        </button>
+      </div>
+      <p class="kql-hint">
+        Paste or type KQL directly. Click "Apply to Filters" to populate filter fields.
+      </p>
     </div>
 
     <!-- Results section -->
@@ -220,6 +239,8 @@ const {
   setViewMode,
   updateStandardFilters,
   updatePhotoFilters,
+  setKqlQuery,
+  parseKqlToFilters,
 } = useAdvancedSearch()
 
 const {
@@ -276,11 +297,24 @@ function handleSaveQuery(): void {
 
 function formatDate(dateStr: string): string {
   const date = new Date(dateStr)
-  return date.toLocaleDateString(undefined, { 
-    month: 'short', 
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
     day: 'numeric',
     year: 'numeric'
   })
+}
+
+// KQL input handlers
+function onKqlInput(event: Event): void {
+  const input = event.target as HTMLInputElement
+  setKqlQuery(input.value)
+}
+
+function applyKqlToFilters(): void {
+  const currentKql = state.kqlQuery || kqlQuery.value
+  parseKqlToFilters(currentKql)
+  // Update the search term input to match
+  searchTerm.value = state.filters.term || ''
 }
 
 // Inject CSS stylesheet (oCIS doesn't auto-load external app CSS)
@@ -422,18 +456,62 @@ onMounted(() => {
   margin-bottom: 1rem;
 }
 
-/* KQL display */
-.kql-display {
-  padding: 0.5rem 1rem;
-  background: #f0f0f0;
+/* KQL editor */
+.kql-editor {
+  background: var(--oc-color-background-muted, #f5f5f5);
+  border: 1px solid var(--oc-color-border, #ddd);
   border-radius: 4px;
+  padding: 0.75rem 1rem;
   margin-bottom: 1rem;
-  font-size: 0.875rem;
 }
 
-.kql-display code {
+.kql-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #666;
+  margin-bottom: 0.5rem;
+}
+
+.kql-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.kql-input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
   font-family: monospace;
-  color: #0066cc;
+  font-size: 0.875rem;
+  border: 1px solid var(--oc-color-border, #ddd);
+  border-radius: 4px;
+  background: white;
+}
+
+.kql-input:focus {
+  outline: none;
+  border-color: var(--oc-color-primary, #0066cc);
+}
+
+.kql-apply-btn {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.8125rem;
+  background: var(--oc-color-primary, #0066cc);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.kql-apply-btn:hover {
+  background: var(--oc-color-primary-hover, #0055aa);
+}
+
+.kql-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.75rem;
+  color: #888;
 }
 
 /* Results section */

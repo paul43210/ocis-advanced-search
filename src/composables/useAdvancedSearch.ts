@@ -625,6 +625,244 @@ export function useAdvancedSearch() {
     Object.assign(state.filters.photo, updates)
   }
 
+  /**
+   * Set KQL query directly (for manual editing)
+   */
+  function setKqlQuery(query: string): void {
+    state.kqlQuery = query
+  }
+
+  /**
+   * Parse a KQL query string and populate the filters
+   * This is the reverse of buildKQLQuery
+   */
+  function parseKqlToFilters(kql: string): void {
+    // Reset filters first
+    state.filters = createEmptyFilters()
+
+    if (!kql || kql === '*') {
+      return
+    }
+
+    // Split by AND (but not inside parentheses)
+    const parts = splitKqlParts(kql)
+
+    for (const part of parts) {
+      parseKqlPart(part.trim())
+    }
+  }
+
+  /**
+   * Split KQL by AND, respecting parentheses
+   */
+  function splitKqlParts(kql: string): string[] {
+    const parts: string[] = []
+    let current = ''
+    let depth = 0
+
+    const tokens = kql.split(/\s+(AND)\s+/i)
+
+    for (const token of tokens) {
+      if (token.toUpperCase() === 'AND') {
+        if (depth === 0) {
+          if (current.trim()) {
+            parts.push(current.trim())
+          }
+          current = ''
+        } else {
+          current += ' AND '
+        }
+      } else {
+        // Count parentheses
+        for (const char of token) {
+          if (char === '(') depth++
+          if (char === ')') depth--
+        }
+        current += token
+      }
+    }
+
+    if (current.trim()) {
+      parts.push(current.trim())
+    }
+
+    return parts
+  }
+
+  /**
+   * Parse a single KQL part and update filters
+   */
+  function parseKqlPart(part: string): void {
+    // Handle parenthesized expressions (unwrap and parse recursively)
+    if (part.startsWith('(') && part.endsWith(')')) {
+      const inner = part.slice(1, -1)
+      // Check if it's a range expression
+      if (inner.includes(' AND ')) {
+        const rangeParts = inner.split(/\s+AND\s+/i)
+        // Try to parse as range (e.g., size>=100 AND size<=1000)
+        if (rangeParts.length === 2) {
+          const range1 = parseRangePart(rangeParts[0])
+          const range2 = parseRangePart(rangeParts[1])
+          if (range1 && range2 && range1.field === range2.field) {
+            applyRangeToFilters(range1.field, range1, range2)
+            return
+          }
+        }
+      }
+      // Not a range, parse each part
+      const subParts = splitKqlParts(inner)
+      for (const subPart of subParts) {
+        parseKqlPart(subPart.trim())
+      }
+      return
+    }
+
+    // Try to parse as range comparison (field>=value or field<=value)
+    const rangeMatch = parseRangePart(part)
+    if (rangeMatch) {
+      applyRangeToFilters(rangeMatch.field, rangeMatch, null)
+      return
+    }
+
+    // Parse field:value patterns
+    const colonIndex = part.indexOf(':')
+    if (colonIndex === -1) {
+      // Free text search term
+      if (part.trim()) {
+        state.filters.term = (state.filters.term ? state.filters.term + ' ' : '') + part.trim()
+      }
+      return
+    }
+
+    const field = part.substring(0, colonIndex).toLowerCase()
+    let value = part.substring(colonIndex + 1)
+
+    // Remove quotes if present
+    if ((value.startsWith('"') && value.endsWith('"')) ||
+        (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+
+    // Unescape KQL escapes
+    value = value.replace(/\\([+\-=&|><!(){}[\]^"~:\\/])/g, '$1')
+
+    // Map field to filter
+    switch (field) {
+      case 'name':
+        state.filters.standard.name = value
+        break
+      case 'type':
+        if (value === '1') state.filters.standard.type = 'file'
+        else if (value === '2') state.filters.standard.type = 'folder'
+        else state.filters.standard.type = value as 'file' | 'folder'
+        break
+      case 'mediatype':
+        state.filters.standard.mediaType = value
+        break
+      case 'tags':
+      case 'tag':
+        state.filters.standard.tags = state.filters.standard.tags
+          ? state.filters.standard.tags + ',' + value
+          : value
+        break
+      case 'content':
+        state.filters.standard.content = value
+        break
+      case 'photo.cameramake':
+        state.filters.photo.cameraMake = value
+        break
+      case 'photo.cameramodel':
+        state.filters.photo.cameraModel = value
+        break
+      case 'photo.orientation':
+        state.filters.photo.orientation = parseInt(value, 10)
+        break
+      default:
+        // Unknown field - add to search term
+        console.log('[parseKqlPart] Unknown field:', field, value)
+        break
+    }
+  }
+
+  /**
+   * Parse a range comparison part (e.g., size>=100, mtime<=2024-01-01)
+   */
+  function parseRangePart(part: string): { field: string; op: string; value: string } | null {
+    const match = part.match(/^([a-z.]+)(>=|<=|>|<)(.+)$/i)
+    if (match) {
+      return {
+        field: match[1].toLowerCase(),
+        op: match[2],
+        value: match[3]
+      }
+    }
+    return null
+  }
+
+  /**
+   * Apply range values to the appropriate filter
+   */
+  function applyRangeToFilters(
+    field: string,
+    range1: { op: string; value: string },
+    range2: { op: string; value: string } | null
+  ): void {
+    const ranges = [range1]
+    if (range2) ranges.push(range2)
+
+    let min: string | number | undefined
+    let max: string | number | undefined
+
+    for (const r of ranges) {
+      if (r.op === '>=' || r.op === '>') {
+        min = r.value
+      } else if (r.op === '<=' || r.op === '<') {
+        max = r.value
+      }
+    }
+
+    switch (field) {
+      case 'size':
+        state.filters.standard.sizeRange = {
+          min: min !== undefined ? parseInt(min as string, 10) : undefined,
+          max: max !== undefined ? parseInt(max as string, 10) : undefined
+        }
+        break
+      case 'mtime':
+        state.filters.standard.modifiedRange = {
+          start: min as string || '',
+          end: max as string || ''
+        }
+        break
+      case 'photo.takendatetime':
+        state.filters.photo.takenDateRange = {
+          start: min as string || '',
+          end: max as string || ''
+        }
+        break
+      case 'photo.iso':
+        state.filters.photo.isoRange = {
+          min: min !== undefined ? parseInt(min as string, 10) : undefined,
+          max: max !== undefined ? parseInt(max as string, 10) : undefined
+        }
+        break
+      case 'photo.fnumber':
+        state.filters.photo.fNumberRange = {
+          min: min !== undefined ? parseFloat(min as string) : undefined,
+          max: max !== undefined ? parseFloat(max as string) : undefined
+        }
+        break
+      case 'photo.focallength':
+        state.filters.photo.focalLengthRange = {
+          min: min !== undefined ? parseFloat(min as string) : undefined,
+          max: max !== undefined ? parseFloat(max as string) : undefined
+        }
+        break
+      default:
+        console.log('[applyRangeToFilters] Unknown range field:', field)
+    }
+  }
+
   return {
     // State
     state,
@@ -644,6 +882,8 @@ export function useAdvancedSearch() {
     updateFilters,
     updateStandardFilters,
     updatePhotoFilters,
+    setKqlQuery,
+    parseKqlToFilters,
   }
 }
 

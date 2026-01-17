@@ -52,27 +52,51 @@ function formatDateForKQL(date: string): string {
 }
 
 /**
- * Build a range query for KQL
+ * Build a range query for KQL using comparison operators
+ * oCIS KQL doesn't support [x TO y] syntax, use >= and <= instead
  */
 function buildRangeQuery(field: string, range: NumericRange): string | null {
   if (range.min === undefined && range.max === undefined) {
     return null
   }
-  const min = range.min !== undefined ? range.min : '*'
-  const max = range.max !== undefined ? range.max : '*'
-  return `${field}:[${min} TO ${max}]`
+
+  const parts: string[] = []
+  if (range.min !== undefined) {
+    parts.push(`${field}>=${range.min}`)
+  }
+  if (range.max !== undefined) {
+    parts.push(`${field}<=${range.max}`)
+  }
+
+  // If both min and max, wrap in parentheses
+  if (parts.length === 2) {
+    return `(${parts.join(' AND ')})`
+  }
+  return parts[0]
 }
 
 /**
- * Build a date range query for KQL
+ * Build a date range query for KQL using comparison operators
+ * oCIS KQL doesn't support [x TO y] syntax, use >= and <= instead
  */
 function buildDateRangeQuery(field: string, range: DateRange): string | null {
   if (!range.start && !range.end) {
     return null
   }
-  const start = range.start ? formatDateForKQL(range.start) : '*'
-  const end = range.end ? formatDateForKQL(range.end) : '*'
-  return `${field}:[${start} TO ${end}]`
+
+  const parts: string[] = []
+  if (range.start) {
+    parts.push(`${field}>=${formatDateForKQL(range.start)}`)
+  }
+  if (range.end) {
+    parts.push(`${field}<=${formatDateForKQL(range.end)}`)
+  }
+
+  // If both start and end, wrap in parentheses
+  if (parts.length === 2) {
+    return `(${parts.join(' AND ')})`
+  }
+  return parts[0]
 }
 
 /**
@@ -173,10 +197,12 @@ export function useAdvancedSearch() {
       parts.push(`name:${escapeKQL(standard.name)}`)
     }
 
+    // Type field uses numeric values in Bleve index:
+    // 1 = RESOURCE_TYPE_FILE, 2 = RESOURCE_TYPE_CONTAINER (folder)
     if (standard.type === 'file') {
-      parts.push('type:file')
+      parts.push('Type:1')
     } else if (standard.type === 'folder') {
-      parts.push('type:folder')
+      parts.push('Type:2')
     }
 
     if (standard.sizeRange) {
@@ -209,16 +235,18 @@ export function useAdvancedSearch() {
     }
 
     // Photo/EXIF filters
+    // KQL requires "photo." prefix for photo fields. The compiler maps:
+    // photo.cameramake -> photo.cameraMake (Bleve), photo.cameramodel -> photo.cameraModel, etc.
     if (photo.cameraMake) {
-      parts.push(`photo.cameraMake:${escapeKQL(photo.cameraMake)}`)
+      parts.push(`photo.cameramake:${escapeKQL(photo.cameraMake)}`)
     }
 
     if (photo.cameraModel) {
-      parts.push(`photo.cameraModel:${escapeKQL(photo.cameraModel)}`)
+      parts.push(`photo.cameramodel:${escapeKQL(photo.cameraModel)}`)
     }
 
     if (photo.takenDateRange) {
-      const takenQuery = buildDateRangeQuery('photo.takenDateTime', photo.takenDateRange)
+      const takenQuery = buildDateRangeQuery('photo.takendatetime', photo.takenDateRange)
       if (takenQuery) parts.push(takenQuery)
     }
 
@@ -228,12 +256,12 @@ export function useAdvancedSearch() {
     }
 
     if (photo.fNumberRange) {
-      const fQuery = buildRangeQuery('photo.fNumber', photo.fNumberRange)
+      const fQuery = buildRangeQuery('photo.fnumber', photo.fNumberRange)
       if (fQuery) parts.push(fQuery)
     }
 
     if (photo.focalLengthRange) {
-      const flQuery = buildRangeQuery('photo.focalLength', photo.focalLengthRange)
+      const flQuery = buildRangeQuery('photo.focallength', photo.focalLengthRange)
       if (flQuery) parts.push(flQuery)
     }
 

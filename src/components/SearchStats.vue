@@ -2,7 +2,7 @@
   <div class="search-stats">
     <div class="stats-header" @click="toggleExpanded">
       <span class="stats-icon">{{ expanded ? '▼' : '▶' }}</span>
-      <h4>Search Index Statistics</h4>
+      <h4>Search Status</h4>
       <span v-if="loading" class="loading-indicator">Loading...</span>
     </div>
 

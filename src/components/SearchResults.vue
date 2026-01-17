@@ -15,6 +15,9 @@
         </div>
         <span class="item-size">{{ formatSize(item.size) }}</span>
         <span class="item-date">{{ formatDate(item.mdate) }}</span>
+        <button class="item-menu-btn" @click.stop="emit('context-menu', $event, item)" title="More actions">
+          ⋮
+        </button>
       </div>
     </div>
 
@@ -27,14 +30,10 @@
         @click="emit('item-click', item)"
       >
         <div class="grid-thumbnail">
-          <img
-            v-if="isImage(item)"
-            :src="getThumbnailUrl(item)"
-            :alt="item.name"
-            loading="lazy"
-            @error="handleImageError"
-          />
-          <span v-else class="grid-icon">{{ getIcon(item) }}</span>
+          <span class="grid-icon">{{ getIcon(item) }}</span>
+          <button class="grid-menu-btn" @click.stop="emit('context-menu', $event, item)" title="More actions">
+            ⋮
+          </button>
         </div>
         <span class="grid-name">{{ item.name }}</span>
       </div>
@@ -45,11 +44,13 @@
       <thead>
         <tr>
           <th>Name</th>
+          <th>Path</th>
           <th>Type</th>
           <th>Size</th>
           <th>Modified</th>
           <th v-if="hasPhotoItems">Camera</th>
           <th v-if="hasPhotoItems">Date Taken</th>
+          <th class="th-actions"></th>
         </tr>
       </thead>
       <tbody>
@@ -62,11 +63,17 @@
             <span class="item-icon">{{ getIcon(item) }}</span>
             {{ item.name }}
           </td>
+          <td class="cell-path">{{ getPath(item) }}</td>
           <td>{{ item.mimeType || 'folder' }}</td>
           <td>{{ formatSize(item.size) }}</td>
           <td>{{ formatDate(item.mdate) }}</td>
           <td v-if="hasPhotoItems">{{ getCameraInfo(item) }}</td>
           <td v-if="hasPhotoItems">{{ getPhotoDate(item) }}</td>
+          <td class="cell-actions">
+            <button class="item-menu-btn" @click.stop="emit('context-menu', $event, item)" title="More actions">
+              ⋮
+            </button>
+          </td>
         </tr>
       </tbody>
     </table>
@@ -85,6 +92,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'item-click', item: Resource): void
+  (e: 'context-menu', event: MouseEvent, item: Resource): void
 }>()
 
 // Check if any items have photo metadata
@@ -330,5 +338,85 @@ function getPhotoDate(item: Resource): string {
 
 .cell-name .item-icon {
   font-size: 1rem;
+}
+
+.cell-path {
+  font-size: 0.8125rem;
+  color: #888;
+  max-width: 250px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Menu button styling */
+.item-menu-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1.25rem;
+  color: #666;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.list-item:hover .item-menu-btn,
+.results-table tr:hover .item-menu-btn {
+  opacity: 1;
+}
+
+.item-menu-btn:hover {
+  background: var(--oc-color-background-muted, #e0e0e0);
+  color: #333;
+}
+
+/* Grid menu button */
+.grid-thumbnail {
+  position: relative;
+}
+
+.grid-menu-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  background: rgba(255, 255, 255, 0.9);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 1rem;
+  color: #666;
+  opacity: 0;
+  transition: opacity 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.grid-item:hover .grid-menu-btn {
+  opacity: 1;
+}
+
+.grid-menu-btn:hover {
+  background: #fff;
+  color: #333;
+}
+
+/* Table actions column */
+.th-actions {
+  width: 48px;
+}
+
+.cell-actions {
+  width: 48px;
+  text-align: center;
 }
 </style>

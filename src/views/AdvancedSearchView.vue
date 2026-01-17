@@ -38,7 +38,7 @@
         class="toggle-filters-btn"
         @click="showFilters = !showFilters"
       >
-        {{ showFilters ? '▼' : '▶' }} Filters
+        {{ showFilters ? '▼' : '▶' }} Advanced
       </button>
     </div>
 
@@ -61,34 +61,13 @@
         :filters="state.filters"
         :fetch-camera-makes="fetchCameraMakes"
         :fetch-camera-models="fetchCameraModels"
+        :kql-query="kqlQuery"
         @update:standard="updateStandardFilters"
         @update:photo="updatePhotoFilters"
+        @search="handleSearch"
+        @kql-input="onKqlInput"
+        @apply-kql="applyKqlToFilters"
       />
-    </div>
-
-    <!-- KQL Query editor -->
-    <div v-if="showKQL" class="kql-editor">
-      <label class="kql-label">KQL Query:</label>
-      <div class="kql-input-row">
-        <input
-          type="text"
-          class="kql-input"
-          :value="kqlQuery"
-          @input="onKqlInput"
-          @keyup.enter="handleSearch"
-          placeholder="Enter KQL query (e.g., name:*.pdf AND mediatype:document)"
-        />
-        <button
-          class="kql-apply-btn"
-          @click="applyKqlToFilters"
-          title="Parse KQL and populate filters"
-        >
-          ↑ Apply to Filters
-        </button>
-      </div>
-      <p class="kql-hint">
-        Paste or type KQL directly. Click "Apply to Filters" to populate filter fields.
-      </p>
     </div>
 
     <!-- Results section -->
@@ -147,6 +126,7 @@
         :items="state.results.items"
         :view-mode="state.viewMode"
         @item-click="handleItemClick"
+        @context-menu="openContextMenu"
       />
 
       <!-- Load more -->
@@ -157,7 +137,7 @@
       </div>
     </div>
 
-    <!-- Search Index Statistics -->
+    <!-- Search Status -->
     <SearchStats />
 
     <!-- Saved queries sidebar -->
@@ -210,6 +190,15 @@
         </div>
       </div>
     </div>
+
+    <!-- Context Menu -->
+    <ResultContextMenu
+      :visible="contextMenuVisible"
+      :item="contextMenuItem"
+      :position="contextMenuPosition"
+      @close="closeContextMenu"
+      @action="handleContextAction"
+    />
   </div>
 </template>
 
@@ -223,6 +212,7 @@ import SearchFilters from '../components/SearchFilters.vue'
 import FilterChip from '../components/FilterChip.vue'
 import SearchResults from '../components/SearchResults.vue'
 import SearchStats from '../components/SearchStats.vue'
+import ResultContextMenu from '../components/ResultContextMenu.vue'
 
 // Props (for saved query route)
 const props = defineProps<{
@@ -257,10 +247,14 @@ const {
 // Local state
 const searchTerm = ref('')
 const showFilters = ref(true)
-const showKQL = ref(true) // Debug: show KQL query
 const showSavedQueries = ref(false)
 const showSaveDialog = ref(false)
 const saveQueryName = ref('')
+
+// Context menu state
+const contextMenuVisible = ref(false)
+const contextMenuItem = ref<Resource | null>(null)
+const contextMenuPosition = ref({ x: 0, y: 0 })
 
 // Computed
 const loading = computed(() => state.loading)
@@ -279,6 +273,141 @@ function handleItemClick(item: Resource): void {
   // Navigate to file location or open preview
   console.log('[AdvancedSearch] Item clicked:', item.name)
   // TODO: Implement file navigation/preview
+}
+
+// Context menu functions
+function openContextMenu(event: MouseEvent, item: Resource): void {
+  event.preventDefault()
+  event.stopPropagation()
+  contextMenuItem.value = item
+  contextMenuPosition.value = { x: event.clientX, y: event.clientY }
+  contextMenuVisible.value = true
+}
+
+function closeContextMenu(): void {
+  contextMenuVisible.value = false
+  contextMenuItem.value = null
+}
+
+async function handleContextAction(action: string, item: Resource): Promise<void> {
+  switch (action) {
+    case 'download':
+      await downloadItem(item)
+      break
+    case 'openInFiles':
+      openInFiles(item)
+      break
+    case 'copyLink':
+      await copyItemLink(item)
+      break
+    case 'delete':
+      await confirmAndDelete(item)
+      break
+  }
+}
+
+async function downloadItem(item: Resource): Promise<void> {
+  try {
+    const serverUrl = state.serverUrl || window.location.origin
+    const spaceId = (item as any).spaceId || ''
+    const itemPath = (item as any).path || item.name || ''
+    const encodedPath = itemPath.split('/').map((s: string) => encodeURIComponent(s)).join('/')
+    const fetchUrl = `${serverUrl}/dav/spaces/${encodeURIComponent(spaceId)}${encodedPath}`
+
+    const response = await fetch(fetchUrl, {
+      credentials: 'include'
+    })
+
+    if (!response.ok) throw new Error('Download failed')
+
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = item.name || 'download'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    console.error('Failed to download:', err)
+    alert('Failed to download file. Please try again.')
+  }
+}
+
+function openInFiles(item: Resource): void {
+  const serverUrl = (state.serverUrl || window.location.origin).replace(/\/$/, '')
+  const fileId = (item as any).fileId || item.id || ''
+  const filePath = (item as any).path || item.name || ''
+
+  // Get the drive alias from the space (e.g., "personal/paul")
+  const driveAlias = (item as any).driveAlias || 'personal/home'
+
+  // Build the full path for preview URL: driveAlias + filePath
+  const fullPath = `${driveAlias}${filePath}`
+  const encodedFullPath = fullPath.split('/').map((s: string) => encodeURIComponent(s)).join('/')
+
+  // Get folder path (without filename) for contextRouteParams
+  const lastSlash = filePath.lastIndexOf('/')
+  const folderPath = lastSlash > 0 ? filePath.substring(0, lastSlash) : ''
+  const driveAliasAndItem = `${driveAlias}${folderPath}`
+
+  // Get parent folder's fileId from parentReference if available
+  const parentId = (item as any).parentReference?.id || (item as any).parentId || ''
+
+  // Build the preview URL with context parameters
+  const params = new URLSearchParams()
+  params.set('fileId', fileId)
+  params.set('contextRouteName', 'files-spaces-generic')
+  params.set('contextRouteParams.driveAliasAndItem', driveAliasAndItem)
+  if (parentId) {
+    params.set('contextRouteQuery.fileId', parentId)
+  }
+
+  const previewUrl = `${serverUrl}/preview/${encodedFullPath}?${params.toString()}`
+  window.open(previewUrl, '_blank')
+}
+
+async function copyItemLink(item: Resource): Promise<void> {
+  try {
+    const serverUrl = (state.serverUrl || window.location.origin).replace(/\/$/, '')
+    const fileId = (item as any).fileId || item.id || ''
+
+    // Use the short /f/{fileId} format
+    const link = `${serverUrl}/f/${encodeURIComponent(fileId)}`
+
+    await navigator.clipboard.writeText(link)
+    alert('Link copied to clipboard!')
+  } catch (err) {
+    console.error('Failed to copy link:', err)
+    alert('Failed to copy link. Please try again.')
+  }
+}
+
+async function confirmAndDelete(item: Resource): Promise<void> {
+  const confirmed = confirm(`Are you sure you want to delete "${item.name}"?`)
+  if (!confirmed) return
+
+  try {
+    const serverUrl = state.serverUrl || window.location.origin
+    const spaceId = (item as any).spaceId || ''
+    const itemPath = (item as any).path || item.name || ''
+    const encodedPath = itemPath.split('/').map((s: string) => encodeURIComponent(s)).join('/')
+    const deleteUrl = `${serverUrl}/dav/spaces/${encodeURIComponent(spaceId)}${encodedPath}`
+
+    const response = await fetch(deleteUrl, {
+      method: 'DELETE',
+      credentials: 'include'
+    })
+
+    if (!response.ok) throw new Error('Delete failed')
+
+    // Refresh search results
+    await executeSearch()
+  } catch (err) {
+    console.error('Failed to delete:', err)
+    alert('Failed to delete file. Please try again.')
+  }
 }
 
 function loadSavedQuery(query: SavedQuery): void {
@@ -309,9 +438,8 @@ function formatDate(dateStr: string): string {
 }
 
 // KQL input handlers
-function onKqlInput(event: Event): void {
-  const input = event.target as HTMLInputElement
-  setKqlQuery(input.value)
+function onKqlInput(value: string): void {
+  setKqlQuery(value)
 }
 
 function applyKqlToFilters(): void {
@@ -458,64 +586,6 @@ onMounted(() => {
   border-radius: 4px;
   padding: 1rem;
   margin-bottom: 1rem;
-}
-
-/* KQL editor */
-.kql-editor {
-  background: var(--oc-color-background-muted, #f5f5f5);
-  border: 1px solid var(--oc-color-border, #ddd);
-  border-radius: 4px;
-  padding: 0.75rem 1rem;
-  margin-bottom: 1rem;
-}
-
-.kql-label {
-  display: block;
-  font-size: 0.8125rem;
-  font-weight: 600;
-  color: #666;
-  margin-bottom: 0.5rem;
-}
-
-.kql-input-row {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.kql-input {
-  flex: 1;
-  padding: 0.5rem 0.75rem;
-  font-family: monospace;
-  font-size: 0.875rem;
-  border: 1px solid var(--oc-color-border, #ddd);
-  border-radius: 4px;
-  background: white;
-}
-
-.kql-input:focus {
-  outline: none;
-  border-color: var(--oc-color-primary, #0066cc);
-}
-
-.kql-apply-btn {
-  padding: 0.5rem 0.75rem;
-  font-size: 0.8125rem;
-  background: var(--oc-color-primary, #0066cc);
-  color: white;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.kql-apply-btn:hover {
-  background: var(--oc-color-primary-hover, #0055aa);
-}
-
-.kql-hint {
-  margin: 0.5rem 0 0;
-  font-size: 0.75rem;
-  color: #888;
 }
 
 /* Results section */

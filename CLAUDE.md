@@ -290,6 +290,11 @@ sudo cp public/manifest.json /data/owncloud/ocis/web/assets/apps/advanced-search
 - [ ] Search within search (refine results)
 - [ ] Faceted navigation (auto-suggest filters based on results)
 - [ ] Integration with photo-addon (open results in PhotoView)
+- [ ] Dynamic camera make/model dropdown population (WebDAV doesn't return photo-camera-make property in responses; would need faceted search API or probing approach)
+
+## Known Bugs / Backlog
+
+- [ ] **"Open in Files" fails for non-previewable files**: Clicking "Open" in context menu on files without a preview handler (e.g., .xlsx, .docx) takes user to a spinning page. The preview URL only works for images and other previewable types. Should detect file type and use appropriate URL: preview for images/PDFs, or navigate directly to folder location for other files.
 
 ## Resources
 

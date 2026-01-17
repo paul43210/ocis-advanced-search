@@ -115,7 +115,7 @@ function escapeXML(str: string): string {
 /**
  * Parse WebDAV REPORT search response XML
  */
-function parseSearchResponse(xmlText: string, spaceId: string): Resource[] {
+function parseSearchResponse(xmlText: string, spaceId: string, driveAlias: string): Resource[] {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlText, 'application/xml')
   const responses = doc.getElementsByTagNameNS('DAV:', 'response')
@@ -129,6 +129,7 @@ function parseSearchResponse(xmlText: string, spaceId: string): Resource[] {
     const contentLength = response.getElementsByTagNameNS('DAV:', 'getcontentlength')[0]?.textContent || '0'
     const lastModified = response.getElementsByTagNameNS('DAV:', 'getlastmodified')[0]?.textContent || ''
     const fileId = response.getElementsByTagNameNS('http://owncloud.org/ns', 'fileid')[0]?.textContent || ''
+    const parentId = response.getElementsByTagNameNS('http://owncloud.org/ns', 'file-parent')[0]?.textContent || ''
 
     // Extract path from href
     const spacePrefix = `/dav/spaces/${spaceId}`
@@ -159,6 +160,8 @@ function parseSearchResponse(xmlText: string, spaceId: string): Resource[] {
       permissions: '',
       starred: false,
       spaceId: spaceId,
+      driveAlias: driveAlias,
+      parentId: parentId,
     } as Resource)
   }
 
@@ -463,7 +466,8 @@ export function useAdvancedSearch() {
       }
 
       const spaceId = personalSpace.id
-      console.log('[AdvancedSearch] Using space:', spaceId, personalSpace.name)
+      const driveAlias = (personalSpace as any).driveAlias || 'personal/home'
+      console.log('[AdvancedSearch] Using space:', spaceId, personalSpace.name, 'driveAlias:', driveAlias)
 
       const limit = pageSize.value
       const pattern = state.kqlQuery
@@ -482,6 +486,7 @@ export function useAdvancedSearch() {
     <d:getcontentlength/>
     <d:getlastmodified/>
     <oc:fileid/>
+    <oc:file-parent/>
     <oc:photo-taken-date-time/>
     <oc:photo-camera-make/>
     <oc:photo-camera-model/>
@@ -503,7 +508,7 @@ export function useAdvancedSearch() {
       const xmlText = typeof response.data === 'string' ? response.data : new XMLSerializer().serializeToString(response.data)
       console.log('[AdvancedSearch] Response length:', xmlText.length)
 
-      const items = parseSearchResponse(xmlText, spaceId)
+      const items = parseSearchResponse(xmlText, spaceId, driveAlias)
       console.log('[AdvancedSearch] Parsed items:', items.length)
 
       state.results = {
@@ -626,117 +631,21 @@ export function useAdvancedSearch() {
   }
 
   /**
-   * Fetch unique camera makes from the search index
-   * Searches for images and extracts distinct cameraMake values
+   * Fetch camera makes - returns empty, uses static list only
+   * TODO: WebDAV doesn't return photo-camera-make property in responses,
+   * so dynamic discovery requires a different approach (faceted search or probing)
    */
   async function fetchCameraMakes(): Promise<string[]> {
-    try {
-      const serverUrl = (configStore.serverUrl || '').replace(/\/$/, '')
-      const spaces = spacesStore.spaces
-      const personalSpace = spaces.find(s => s.driveType === 'personal') || spaces[0]
-
-      if (!personalSpace) {
-        console.log('[fetchCameraMakes] No space available')
-        return []
-      }
-
-      // Search for images to get camera makes
-      const searchBody = `<?xml version="1.0" encoding="UTF-8"?>
-<oc:search-files xmlns:oc="http://owncloud.org/ns" xmlns:d="DAV:">
-  <oc:search>
-    <oc:pattern>mediatype:image</oc:pattern>
-    <oc:limit>500</oc:limit>
-  </oc:search>
-  <d:prop>
-    <oc:photo-camera-make/>
-  </d:prop>
-</oc:search-files>`
-
-      const response = await clientService.httpAuthenticated.request({
-        method: 'REPORT',
-        url: `${serverUrl}/dav/spaces/${encodeURIComponent(personalSpace.id)}`,
-        headers: { 'Content-Type': 'application/xml' },
-        data: searchBody
-      })
-
-      const xmlText = typeof response.data === 'string'
-        ? response.data
-        : new XMLSerializer().serializeToString(response.data)
-
-      // Extract camera makes from response
-      const makeRegex = /<oc:photo-camera-make>([^<]+)<\/oc:photo-camera-make>/gi
-      const makes = new Set<string>()
-      let match
-
-      while ((match = makeRegex.exec(xmlText)) !== null) {
-        const make = match[1].trim()
-        if (make) {
-          makes.add(make)
-        }
-      }
-
-      const result = Array.from(makes).sort()
-      console.log('[fetchCameraMakes] Found makes:', result)
-      return result
-    } catch (err) {
-      console.error('[fetchCameraMakes] Error:', err)
-      return []
-    }
+    // Static list is used from KNOWN_CAMERA_MAKES in types.ts
+    return []
   }
 
   /**
-   * Fetch unique camera models from the search index
+   * Fetch camera models - returns empty, no static list available
+   * TODO: WebDAV doesn't return photo-camera-model property in responses
    */
   async function fetchCameraModels(): Promise<string[]> {
-    try {
-      const serverUrl = (configStore.serverUrl || '').replace(/\/$/, '')
-      const spaces = spacesStore.spaces
-      const personalSpace = spaces.find(s => s.driveType === 'personal') || spaces[0]
-
-      if (!personalSpace) {
-        return []
-      }
-
-      const searchBody = `<?xml version="1.0" encoding="UTF-8"?>
-<oc:search-files xmlns:oc="http://owncloud.org/ns" xmlns:d="DAV:">
-  <oc:search>
-    <oc:pattern>mediatype:image</oc:pattern>
-    <oc:limit>500</oc:limit>
-  </oc:search>
-  <d:prop>
-    <oc:photo-camera-model/>
-  </d:prop>
-</oc:search-files>`
-
-      const response = await clientService.httpAuthenticated.request({
-        method: 'REPORT',
-        url: `${serverUrl}/dav/spaces/${encodeURIComponent(personalSpace.id)}`,
-        headers: { 'Content-Type': 'application/xml' },
-        data: searchBody
-      })
-
-      const xmlText = typeof response.data === 'string'
-        ? response.data
-        : new XMLSerializer().serializeToString(response.data)
-
-      const modelRegex = /<oc:photo-camera-model>([^<]+)<\/oc:photo-camera-model>/gi
-      const models = new Set<string>()
-      let match
-
-      while ((match = modelRegex.exec(xmlText)) !== null) {
-        const model = match[1].trim()
-        if (model) {
-          models.add(model)
-        }
-      }
-
-      const result = Array.from(models).sort()
-      console.log('[fetchCameraModels] Found models:', result)
-      return result
-    } catch (err) {
-      console.error('[fetchCameraModels] Error:', err)
-      return []
-    }
+    return []
   }
 
   /**

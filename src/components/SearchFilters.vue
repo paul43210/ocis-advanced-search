@@ -138,7 +138,11 @@
             :value="filters.photo.cameraModel || ''"
             @input="emit('update:photo', { ...filters.photo, cameraModel: ($event.target as HTMLInputElement).value || undefined })"
             placeholder="e.g., EOS R5, SM-G998B"
+            list="camera-models"
           />
+          <datalist id="camera-models">
+            <option v-for="model in cameraModels" :key="model" :value="model" />
+          </datalist>
         </div>
 
         <!-- Date Taken -->
@@ -232,12 +236,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { SearchFilters } from '../types'
 import { KNOWN_CAMERA_MAKES, COMMON_MEDIA_TYPES } from '../types'
 
 const props = defineProps<{
   filters: SearchFilters
+  fetchCameraMakes?: () => Promise<string[]>
+  fetchCameraModels?: () => Promise<string[]>
 }>()
 
 const emit = defineEmits<{
@@ -249,9 +255,41 @@ const emit = defineEmits<{
 const showStandard = ref(true)
 const showPhoto = ref(false)
 
-// Data for dropdowns
-const cameraMakes = KNOWN_CAMERA_MAKES
+// Camera makes/models from search index
+const discoveredCameraMakes = ref<string[]>([])
+const discoveredCameraModels = ref<string[]>([])
+const loadingPhotoData = ref(false)
+
+// Merge static and discovered camera makes
+const cameraMakes = computed(() => {
+  const all = new Set([...KNOWN_CAMERA_MAKES, ...discoveredCameraMakes.value])
+  return Array.from(all).sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+})
+
+// Camera models (only from search, no static list)
+const cameraModels = computed(() => {
+  return discoveredCameraModels.value.sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+})
+
 const mediaTypes = COMMON_MEDIA_TYPES
+
+// Fetch camera makes and models when photo section is expanded
+watch(showPhoto, async (isShown) => {
+  if (isShown && discoveredCameraMakes.value.length === 0) {
+    loadingPhotoData.value = true
+    try {
+      // Fetch both in parallel
+      const [makes, models] = await Promise.all([
+        props.fetchCameraMakes?.() ?? Promise.resolve([]),
+        props.fetchCameraModels?.() ?? Promise.resolve([])
+      ])
+      discoveredCameraMakes.value = makes
+      discoveredCameraModels.value = models
+    } finally {
+      loadingPhotoData.value = false
+    }
+  }
+})
 
 // Helper functions for range updates
 function updateSizeRange(field: 'min' | 'max', value: string): void {

@@ -59,6 +59,8 @@
     <div v-if="showFilters" class="filters-panel">
       <SearchFilters
         :filters="state.filters"
+        :fetch-camera-makes="fetchCameraMakes"
+        :fetch-camera-models="fetchCameraModels"
         @update:standard="updateStandardFilters"
         @update:photo="updatePhotoFilters"
       />
@@ -241,6 +243,8 @@ const {
   updatePhotoFilters,
   setKqlQuery,
   parseKqlToFilters,
+  fetchCameraMakes,
+  fetchCameraModels,
 } = useAdvancedSearch()
 
 const {

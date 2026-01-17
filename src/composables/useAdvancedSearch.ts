@@ -626,6 +626,120 @@ export function useAdvancedSearch() {
   }
 
   /**
+   * Fetch unique camera makes from the search index
+   * Searches for images and extracts distinct cameraMake values
+   */
+  async function fetchCameraMakes(): Promise<string[]> {
+    try {
+      const serverUrl = (configStore.serverUrl || '').replace(/\/$/, '')
+      const spaces = spacesStore.spaces
+      const personalSpace = spaces.find(s => s.driveType === 'personal') || spaces[0]
+
+      if (!personalSpace) {
+        console.log('[fetchCameraMakes] No space available')
+        return []
+      }
+
+      // Search for images to get camera makes
+      const searchBody = `<?xml version="1.0" encoding="UTF-8"?>
+<oc:search-files xmlns:oc="http://owncloud.org/ns" xmlns:d="DAV:">
+  <oc:search>
+    <oc:pattern>mediatype:image</oc:pattern>
+    <oc:limit>500</oc:limit>
+  </oc:search>
+  <d:prop>
+    <oc:photo-camera-make/>
+  </d:prop>
+</oc:search-files>`
+
+      const response = await clientService.httpAuthenticated.request({
+        method: 'REPORT',
+        url: `${serverUrl}/dav/spaces/${encodeURIComponent(personalSpace.id)}`,
+        headers: { 'Content-Type': 'application/xml' },
+        data: searchBody
+      })
+
+      const xmlText = typeof response.data === 'string'
+        ? response.data
+        : new XMLSerializer().serializeToString(response.data)
+
+      // Extract camera makes from response
+      const makeRegex = /<oc:photo-camera-make>([^<]+)<\/oc:photo-camera-make>/gi
+      const makes = new Set<string>()
+      let match
+
+      while ((match = makeRegex.exec(xmlText)) !== null) {
+        const make = match[1].trim()
+        if (make) {
+          makes.add(make)
+        }
+      }
+
+      const result = Array.from(makes).sort()
+      console.log('[fetchCameraMakes] Found makes:', result)
+      return result
+    } catch (err) {
+      console.error('[fetchCameraMakes] Error:', err)
+      return []
+    }
+  }
+
+  /**
+   * Fetch unique camera models from the search index
+   */
+  async function fetchCameraModels(): Promise<string[]> {
+    try {
+      const serverUrl = (configStore.serverUrl || '').replace(/\/$/, '')
+      const spaces = spacesStore.spaces
+      const personalSpace = spaces.find(s => s.driveType === 'personal') || spaces[0]
+
+      if (!personalSpace) {
+        return []
+      }
+
+      const searchBody = `<?xml version="1.0" encoding="UTF-8"?>
+<oc:search-files xmlns:oc="http://owncloud.org/ns" xmlns:d="DAV:">
+  <oc:search>
+    <oc:pattern>mediatype:image</oc:pattern>
+    <oc:limit>500</oc:limit>
+  </oc:search>
+  <d:prop>
+    <oc:photo-camera-model/>
+  </d:prop>
+</oc:search-files>`
+
+      const response = await clientService.httpAuthenticated.request({
+        method: 'REPORT',
+        url: `${serverUrl}/dav/spaces/${encodeURIComponent(personalSpace.id)}`,
+        headers: { 'Content-Type': 'application/xml' },
+        data: searchBody
+      })
+
+      const xmlText = typeof response.data === 'string'
+        ? response.data
+        : new XMLSerializer().serializeToString(response.data)
+
+      const modelRegex = /<oc:photo-camera-model>([^<]+)<\/oc:photo-camera-model>/gi
+      const models = new Set<string>()
+      let match
+
+      while ((match = modelRegex.exec(xmlText)) !== null) {
+        const model = match[1].trim()
+        if (model) {
+          models.add(model)
+        }
+      }
+
+      const result = Array.from(models).sort()
+      console.log('[fetchCameraModels] Found models:', result)
+      return result
+    } catch (err) {
+      console.error('[fetchCameraModels] Error:', err)
+      return []
+    }
+  }
+
+  /**
    * Set KQL query directly (for manual editing)
    */
   function setKqlQuery(query: string): void {
@@ -884,6 +998,8 @@ export function useAdvancedSearch() {
     updatePhotoFilters,
     setKqlQuery,
     parseKqlToFilters,
+    fetchCameraMakes,
+    fetchCameraModels,
   }
 }
 

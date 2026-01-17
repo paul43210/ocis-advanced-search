@@ -136,6 +136,9 @@
       </div>
     </div>
 
+    <!-- Search Index Statistics -->
+    <SearchStats />
+
     <!-- Saved queries sidebar -->
     <div v-if="showSavedQueries" class="saved-queries-panel">
       <div class="panel-header">
@@ -198,6 +201,7 @@ import type { SavedQuery } from '../types'
 import SearchFilters from '../components/SearchFilters.vue'
 import FilterChip from '../components/FilterChip.vue'
 import SearchResults from '../components/SearchResults.vue'
+import SearchStats from '../components/SearchStats.vue'
 
 // Props (for saved query route)
 const props = defineProps<{

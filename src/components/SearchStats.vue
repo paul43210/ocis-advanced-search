@@ -1,6 +1,6 @@
 <template>
   <div class="search-stats">
-    <div class="stats-header" @click="expanded = !expanded">
+    <div class="stats-header" @click="toggleExpanded">
       <span class="stats-icon">{{ expanded ? '▼' : '▶' }}</span>
       <h4>Search Index Statistics</h4>
       <span v-if="loading" class="loading-indicator">Loading...</span>
@@ -20,27 +20,16 @@
           <div class="stat-item">
             <span class="stat-label">Tika Extraction</span>
             <span :class="['stat-value', stats.tikaEnabled ? 'enabled' : 'disabled']">
-              {{ stats.tikaEnabled ? 'Enabled' : 'Unknown' }}
+              {{ stats.tikaEnabled ? 'Enabled' : 'Disabled' }}
             </span>
           </div>
           <div class="stat-item">
             <span class="stat-label">Index Engine</span>
-            <span class="stat-value">{{ stats.indexEngine || 'Bleve' }}</span>
+            <span class="stat-value">{{ stats.indexEngine }}</span>
           </div>
-        </div>
-      </div>
-
-      <!-- Index Size (if available) -->
-      <div v-if="stats.indexSize || stats.indexPath" class="stats-section">
-        <h5>Index Storage</h5>
-        <div class="stats-grid">
-          <div v-if="stats.indexSize" class="stat-item">
-            <span class="stat-label">Index Size</span>
-            <span class="stat-value">{{ formatBytes(stats.indexSize) }}</span>
-          </div>
-          <div v-if="stats.indexPath" class="stat-item">
-            <span class="stat-label">Index Path</span>
-            <span class="stat-value path">{{ stats.indexPath }}</span>
+          <div class="stat-item">
+            <span class="stat-label">Total Indexed Files</span>
+            <span class="stat-value">{{ stats.totalIndexedFiles !== null ? stats.totalIndexedFiles.toLocaleString() : 'Counting...' }}</span>
           </div>
         </div>
       </div>
@@ -74,7 +63,7 @@
         <div class="stats-grid">
           <div class="stat-item">
             <span class="stat-label">Server URL</span>
-            <span class="stat-value path">{{ stats.serverUrl || 'N/A' }}</span>
+            <span class="stat-value path">{{ stats.serverUrl }}</span>
           </div>
           <div v-if="stats.version" class="stat-item">
             <span class="stat-label">oCIS Version</span>
@@ -94,7 +83,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useClientService, useConfigStore, useSpacesStore } from '@ownclouders/web-pkg'
 
 interface SpaceInfo {
@@ -104,16 +93,15 @@ interface SpaceInfo {
   used?: number
 }
 
-interface SearchStats {
+interface SearchStatsData {
   fullTextEnabled: boolean
   tikaEnabled: boolean
   indexEngine: string
-  indexSize: number | null
-  indexPath: string | null
+  totalIndexedFiles: number | null
   totalSpaces: number
   personalSpaceName: string | null
   spaces: SpaceInfo[]
-  serverUrl: string | null
+  serverUrl: string
   version: string | null
 }
 
@@ -123,73 +111,168 @@ const spacesStore = useSpacesStore()
 
 const expanded = ref(false)
 const loading = ref(false)
-const stats = reactive<SearchStats>({
+const stats = reactive<SearchStatsData>({
   fullTextEnabled: false,
   tikaEnabled: false,
-  indexEngine: 'Bleve',
-  indexSize: null,
-  indexPath: null,
+  indexEngine: 'Bleve (Scorch)',
+  totalIndexedFiles: null,
   totalSpaces: 0,
   personalSpaceName: null,
   spaces: [],
-  serverUrl: null,
+  serverUrl: '',
   version: null,
 })
+
+// Watch for expansion and load stats
+watch(expanded, (isExpanded) => {
+  if (isExpanded && stats.totalSpaces === 0) {
+    loadStats()
+  }
+})
+
+function toggleExpanded() {
+  expanded.value = !expanded.value
+}
 
 async function loadStats(): Promise<void> {
   loading.value = true
 
   try {
-    // Get server URL from config
-    stats.serverUrl = configStore.serverUrl || null
+    // Get server URL - try configStore first, then derive from window location
+    let serverUrl = configStore.serverUrl || ''
+    if (!serverUrl && typeof window !== 'undefined') {
+      serverUrl = window.location.origin
+    }
+    serverUrl = serverUrl.replace(/\/$/, '')
+    stats.serverUrl = serverUrl
 
-    // Get spaces info
-    const spaces = spacesStore.spaces
-    stats.totalSpaces = spaces.length
-
-    const personalSpace = spaces.find(s => s.driveType === 'personal')
-    stats.personalSpaceName = personalSpace?.name || null
-
-    stats.spaces = spaces.map(s => ({
-      id: s.id,
-      name: s.name || 'Unknown',
-      driveType: s.driveType || 'unknown',
-      used: (s as any).quota?.used || undefined,
-    }))
-
-    // Try to get config.json for more details
+    // Fetch spaces via Graph API
     try {
-      const serverUrl = (configStore.serverUrl || '').replace(/\/$/, '')
+      const graphResponse = await clientService.httpAuthenticated.get(
+        `${serverUrl}/graph/v1.0/me/drives`
+      )
+      const drives = graphResponse.data?.value || []
+
+      stats.totalSpaces = drives.length
+      stats.spaces = drives.map((d: any) => ({
+        id: d.id,
+        name: d.name || 'Unknown',
+        driveType: d.driveType || 'unknown',
+        used: d.quota?.used || undefined,
+      }))
+
+      const personalSpace = drives.find((d: any) => d.driveType === 'personal')
+      stats.personalSpaceName = personalSpace?.name || null
+
+      console.log('[SearchStats] Spaces loaded:', stats.spaces.length)
+    } catch (err) {
+      console.error('[SearchStats] Failed to fetch spaces via Graph API:', err)
+      // Fall back to spacesStore if available
+      const spaces = spacesStore.spaces || []
+      stats.totalSpaces = spaces.length
+      stats.spaces = spaces.map(s => ({
+        id: s.id,
+        name: s.name || 'Unknown',
+        driveType: s.driveType || 'unknown',
+        used: (s as any).quota?.used || undefined,
+      }))
+      const personalSpace = spaces.find(s => s.driveType === 'personal')
+      stats.personalSpaceName = personalSpace?.name || null
+    }
+
+    // Try to get config.json for full-text search and Tika status
+    try {
       const configResponse = await clientService.httpAuthenticated.get(`${serverUrl}/config.json`)
       const config = configResponse.data
 
       // Check for full-text search option
-      stats.fullTextEnabled = config?.options?.fullTextSearch?.enabled !== false
+      if (config?.options?.fullTextSearch) {
+        stats.fullTextEnabled = config.options.fullTextSearch.enabled !== false
+      } else {
+        // Default to enabled if not specified
+        stats.fullTextEnabled = true
+      }
+
+      // Check for Tika in config (oCIS exposes this if configured)
+      // The presence of fullTextSearch usually means Tika is enabled
+      stats.tikaEnabled = stats.fullTextEnabled
+
+      console.log('[SearchStats] Config loaded:', { fullText: stats.fullTextEnabled })
     } catch (err) {
-      console.log('[SearchStats] Could not fetch config.json')
+      console.log('[SearchStats] Could not fetch config.json, assuming defaults')
+      stats.fullTextEnabled = true
+      stats.tikaEnabled = true
     }
 
-    // Try to get version info from .well-known
+    // Try to get version from capabilities
     try {
-      const serverUrl = (configStore.serverUrl || '').replace(/\/$/, '')
-      const wellKnownResponse = await clientService.httpAuthenticated.get(
-        `${serverUrl}/.well-known/openid-configuration`
+      const capabilitiesResponse = await clientService.httpAuthenticated.get(
+        `${serverUrl}/ocs/v1.php/cloud/capabilities?format=json`
       )
-      // Version might be in the response headers or body
-      // oCIS typically doesn't expose version here, but we try
+      const capabilities = capabilitiesResponse.data?.ocs?.data
+      if (capabilities?.version?.string) {
+        stats.version = capabilities.version.string
+      } else if (capabilities?.version?.major) {
+        stats.version = `${capabilities.version.major}.${capabilities.version.minor}.${capabilities.version.micro}`
+      }
     } catch (err) {
-      // Version not available via API
+      console.log('[SearchStats] Could not fetch capabilities')
     }
 
-    // Note: Index size and Tika status require server-side access
-    // These would need an admin API endpoint to expose
-    stats.tikaEnabled = true // Assume enabled if full-text is enabled
-    stats.indexEngine = 'Bleve (Scorch)'
+    // Count total indexed files by doing a wildcard search
+    await countIndexedFiles(serverUrl)
 
   } catch (err) {
     console.error('[SearchStats] Failed to load stats:', err)
   } finally {
     loading.value = false
+  }
+}
+
+async function countIndexedFiles(serverUrl: string): Promise<void> {
+  try {
+    // Find the personal space for searching
+    const personalSpace = stats.spaces.find(s => s.driveType === 'personal') || stats.spaces[0]
+
+    if (!personalSpace) {
+      console.log('[SearchStats] No space available for file count')
+      return
+    }
+
+    // Do a search with * to count all indexed files
+    // Use a large limit to get total count
+    const searchBody = `<?xml version="1.0" encoding="UTF-8"?>
+<oc:search-files xmlns:oc="http://owncloud.org/ns" xmlns:d="DAV:">
+  <oc:search>
+    <oc:pattern>*</oc:pattern>
+    <oc:limit>10000</oc:limit>
+  </oc:search>
+  <d:prop>
+    <oc:fileid/>
+  </d:prop>
+</oc:search-files>`
+
+    const response = await clientService.httpAuthenticated.request({
+      method: 'REPORT',
+      url: `${serverUrl}/dav/spaces/${encodeURIComponent(personalSpace.id)}`,
+      headers: {
+        'Content-Type': 'application/xml'
+      },
+      data: searchBody
+    })
+
+    // Count <d:response> elements
+    const xmlText = typeof response.data === 'string'
+      ? response.data
+      : new XMLSerializer().serializeToString(response.data)
+
+    const responseMatches = xmlText.match(/<d:response>/gi) || []
+    stats.totalIndexedFiles = responseMatches.length
+
+    console.log('[SearchStats] Indexed files count:', stats.totalIndexedFiles)
+  } catch (err) {
+    console.error('[SearchStats] Failed to count indexed files:', err)
+    stats.totalIndexedFiles = null
   }
 }
 
@@ -210,10 +293,6 @@ function getSpaceIcon(driveType: string): string {
     default: return '📂'
   }
 }
-
-onMounted(() => {
-  // Don't auto-load - wait for user to expand
-})
 </script>
 
 <style scoped>

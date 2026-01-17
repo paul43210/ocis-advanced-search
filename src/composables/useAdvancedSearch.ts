@@ -100,6 +100,19 @@ function buildDateRangeQuery(field: string, range: DateRange): string | null {
 }
 
 /**
+ * Escape special XML characters in a string
+ * Required when embedding KQL in XML body (< > & need escaping)
+ */
+function escapeXML(str: string): string {
+  return str
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+}
+
+/**
  * Parse WebDAV REPORT search response XML
  */
 function parseSearchResponse(xmlText: string, spaceId: string): Resource[] {
@@ -456,10 +469,11 @@ export function useAdvancedSearch() {
       const pattern = state.kqlQuery
 
       // Build WebDAV REPORT search request
+      // Pattern must be XML-escaped since KQL can contain < > (comparison operators)
       const searchBody = `<?xml version="1.0" encoding="UTF-8"?>
 <oc:search-files xmlns:oc="http://owncloud.org/ns" xmlns:d="DAV:">
   <oc:search>
-    <oc:pattern>${pattern}</oc:pattern>
+    <oc:pattern>${escapeXML(pattern)}</oc:pattern>
     <oc:limit>${limit}</oc:limit>
   </oc:search>
   <d:prop>

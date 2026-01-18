@@ -315,3 +315,48 @@ sudo cp public/manifest.json /data/owncloud/ocis/web/assets/apps/advanced-search
 # Set your GitHub token (do not commit tokens to repo)
 git remote set-url origin https://${GITHUB_TOKEN}@github.com/paul43210/ocis-advanced-search.git
 ```
+
+
+## SonarCloud / Code Quality
+
+When contributing to `owncloud/web-extensions`, SonarCloud will analyze your code. For TypeScript/Vue projects, common issues include complexity and unused code.
+
+### Local Code Quality Checks
+
+**ESLint complexity rules** (add to `.eslintrc.js` or run manually):
+```bash
+# Check for complex functions
+pnpm eslint --rule 'complexity: ["warn", 15]' src/
+
+# Check for deep nesting  
+pnpm eslint --rule 'max-depth: ["warn", 4]' src/
+```
+
+### SonarCloud API (for ownCloud projects)
+
+**API Token:** `55e20fedf07226f86150b475a854c3e252479bf8` (user: claude)
+
+**Check issues after PR submission to web-extensions:**
+```bash
+# Replace PROJECT and PR_NUMBER appropriately
+curl -s -u "55e20fedf07226f86150b475a854c3e252479bf8:" \
+  "https://sonarcloud.io/api/issues/search?projects=PROJECT&pullRequest=PR_NUMBER&statuses=OPEN,CONFIRMED" \
+  | python3 -c "import sys,json; d=json.load(sys.stdin); [print(f\"{i['rule']}: {i['message']} @ line {i.get('line','?')}\") for i in d.get('issues',[])]"
+```
+
+### Common Code Smells to Avoid
+
+| Issue | Description | Fix |
+|-------|-------------|-----|
+| High cognitive complexity | Function has too many branches/loops | Extract helper functions |
+| Unused imports/variables | Dead code | Remove or use `_` prefix |
+| Deep nesting | Too many nested if/for/etc | Early returns, extract functions |
+| Long functions | Function > 50-100 lines | Split into smaller functions |
+
+### Pre-Contribution Checklist
+
+- [ ] Run `pnpm lint` and fix all errors
+- [ ] Run `pnpm typecheck` for TypeScript errors  
+- [ ] Review large functions (>30 lines) for extraction opportunities
+- [ ] Check for unused variables/imports
+- [ ] Ensure cognitive complexity < 15 per function

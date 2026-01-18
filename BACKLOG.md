@@ -1,6 +1,6 @@
 # oCIS Advanced Search - Backlog
 
-**Last Updated:** January 17, 2026
+**Last Updated:** January 18, 2026
 
 ---
 
@@ -28,10 +28,18 @@
 
 ### 🟡 Web Extensions Contribution
 - [x] Included in proposal to `owncloud/web-extensions` repo
-- [ ] Wait for maintainer feedback on interest/naming/scope
-- [ ] Restructure to `web-app-advanced-search` 
+- [x] Received positive response from maintainer - "this is awesome, please go ahead!"
+- [ ] Wait for maintainer feedback on clarifying questions
+- [ ] Restructure to `web-app-advanced-search`
 - [ ] Update license from Apache-2.0 to AGPL-3.0
 - [ ] Submit PR after photo-addon PR and backend PR merge
+
+### 🟡 Deployment Example Updates
+- [ ] **Update `ocis_full` deployment example** after web-extensions PR accepted
+- [ ] Add `.env` entry: `#ADVANCEDSEARCH=:web_extensions/advancedsearch.yml`
+- [ ] Create `web_extensions/advancedsearch.yml` with init container config
+- [ ] Test deployment with Docker Compose
+- **Reference:** https://github.com/owncloud/ocis/blob/master/deployments/examples/ocis_full/
 
 ---
 

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   escapeKQL,
-  formatDateForKQL,
   buildRangeQuery,
   buildDateRangeQuery,
   escapeXML,
@@ -9,6 +8,7 @@ import {
   buildPhotoKQL,
   buildKQL,
 } from './kql'
+import { formatDateForKQL } from './format'
 
 describe('escapeKQL', () => {
   it('escapes special characters', () => {
@@ -48,8 +48,19 @@ describe('formatDateForKQL', () => {
     expect(formatDateForKQL('January 15, 2024')).toBe('2024-01-15')
   })
 
-  it('returns invalid dates unchanged', () => {
-    expect(formatDateForKQL('not-a-date')).toBe('not-a-date')
+  it('returns null for invalid dates', () => {
+    expect(formatDateForKQL('not-a-date')).toBeNull()
+  })
+
+  it('returns null for empty or whitespace input', () => {
+    expect(formatDateForKQL('')).toBeNull()
+    expect(formatDateForKQL('   ')).toBeNull()
+  })
+
+  it('returns null for dates that match regex but are invalid', () => {
+    // These match YYYY-MM-DD format but aren't valid dates
+    expect(formatDateForKQL('2023-13-45')).toBeNull()
+    expect(formatDateForKQL('2023-00-01')).toBeNull()
   })
 })
 
@@ -135,16 +146,28 @@ describe('buildStandardKQL', () => {
     expect(buildStandardKQL(emptyFilters, '')).toEqual([])
   })
 
-  it('builds search term query', () => {
+  it('builds search term query for single word', () => {
     expect(buildStandardKQL(emptyFilters, 'vacation')).toEqual(['name:*vacation*'])
+  })
+
+  it('builds quoted search term query for multi-word phrases', () => {
+    expect(buildStandardKQL(emptyFilters, 'List of CIOs')).toEqual(['name:"*List of CIOs*"'])
   })
 
   it('passes through terms with field prefix', () => {
     expect(buildStandardKQL(emptyFilters, 'content:report')).toEqual(['content:report'])
   })
 
-  it('builds name filter', () => {
+  it('builds name filter with wildcards', () => {
     expect(buildStandardKQL({ name: '*.pdf' }, '')).toEqual(['name:*.pdf'])
+  })
+
+  it('builds name filter for single word', () => {
+    expect(buildStandardKQL({ name: 'document' }, '')).toEqual(['name:*document*'])
+  })
+
+  it('builds name filter for multi-word phrase', () => {
+    expect(buildStandardKQL({ name: 'annual report' }, '')).toEqual(['name:"*annual report*"'])
   })
 
   it('builds type filter for files', () => {
@@ -179,9 +202,19 @@ describe('buildStandardKQL', () => {
       .toEqual(['(tags:vacation OR tags:photos)'])
   })
 
-  it('builds content filter', () => {
+  it('builds tag filter with spaces (quoted)', () => {
+    expect(buildStandardKQL({ tags: 'my tag' }, ''))
+      .toEqual(['tags:"my tag"'])
+  })
+
+  it('builds content filter for single word', () => {
+    expect(buildStandardKQL({ content: 'report' }, ''))
+      .toEqual(['content:report'])
+  })
+
+  it('builds quoted content filter for multi-word phrase', () => {
     expect(buildStandardKQL({ content: 'annual report' }, ''))
-      .toEqual(['content:annual\\ report'])
+      .toEqual(['content:"annual report"'])
   })
 
   it('combines multiple filters', () => {
@@ -208,8 +241,12 @@ describe('buildPhotoKQL', () => {
     expect(buildPhotoKQL({ cameraMake: 'Canon' })).toEqual(['photo.cameramake:Canon'])
   })
 
-  it('builds camera model filter', () => {
-    expect(buildPhotoKQL({ cameraModel: 'EOS R5' })).toEqual(['photo.cameramodel:EOS\\ R5'])
+  it('builds camera model filter for single word', () => {
+    expect(buildPhotoKQL({ cameraModel: 'R5' })).toEqual(['photo.cameramodel:R5'])
+  })
+
+  it('builds camera model filter with spaces (quoted)', () => {
+    expect(buildPhotoKQL({ cameraModel: 'EOS R5' })).toEqual(['photo.cameramodel:"EOS R5"'])
   })
 
   it('builds taken date range filter', () => {

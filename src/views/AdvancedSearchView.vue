@@ -110,7 +110,25 @@
 
       <!-- Error state -->
       <div v-else-if="state.error" class="error-state">
-        ⚠️ {{ state.error }}
+        <div class="error-icon">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <circle cx="12" cy="12" r="10" />
+            <line x1="12" y1="8" x2="12" y2="12" />
+            <circle cx="12" cy="16" r="0.5" fill="currentColor" />
+          </svg>
+        </div>
+        <h2 class="error-title">{{ errorTitle }}</h2>
+        <p class="error-message">{{ state.error }}</p>
+        <div class="error-suggestions" v-if="errorSuggestions.length > 0">
+          <p class="suggestions-label">{{ $gettext('Things to try:') }}</p>
+          <ul>
+            <li v-for="(suggestion, index) in errorSuggestions" :key="index">{{ suggestion }}</li>
+          </ul>
+        </div>
+        <button @click="retrySearch" class="retry-button">
+          <span class="retry-icon">↻</span>
+          {{ $gettext('Try Again') }}
+        </button>
       </div>
 
       <!-- Empty state -->
@@ -204,11 +222,11 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
-import type { Resource } from '@ownclouders/web-client'
 import { useAdvancedSearch } from '../composables/useAdvancedSearch'
 import { useSearchHistory } from '../composables/useSearchHistory'
 import { useTranslations } from '../composables/useTranslations'
-import type { SavedQuery } from '../types'
+import type { SavedQuery, SearchResource } from '../types'
+import { formatDate, classifyError, debounce } from '../utils/format'
 import SearchFilters from '../components/SearchFilters.vue'
 import FilterChip from '../components/FilterChip.vue'
 import SearchResults from '../components/SearchResults.vue'
@@ -257,31 +275,42 @@ const saveQueryName = ref('')
 
 // Context menu state
 const contextMenuVisible = ref(false)
-const contextMenuItem = ref<Resource | null>(null)
+const contextMenuItem = ref<SearchResource | null>(null)
 const contextMenuPosition = ref({ x: 0, y: 0 })
 
 // Computed
 const loading = computed(() => state.loading)
 
+// Error classification - compute once to avoid duplicate string checks
+// Translations are now handled inside classifyError
+const errorInfo = computed(() => classifyError(state.error, $gettext))
+const errorTitle = computed(() => errorInfo.value.title)
+const errorSuggestions = computed(() => errorInfo.value.suggestions)
+
 // URL helper functions
 function getServerUrl(): string {
-  return ((state as any).serverUrl || window.location.origin).replace(/\/$/, '')
+  return (window.location.origin).replace(/\/$/, '')
 }
 
 function encodePath(path: string): string {
   return path.split('/').map(s => encodeURIComponent(s)).join('/')
 }
 
-function buildDavUrl(item: Resource): string {
+function buildDavUrl(item: SearchResource): string {
   const serverUrl = getServerUrl()
-  const spaceId = (item as any).spaceId || ''
-  const itemPath = (item as any).path || item.name || ''
+  const spaceId = item.spaceId || ''
+  const itemPath = item.path || item.name || ''
   return `${serverUrl}/dav/spaces/${encodeURIComponent(spaceId)}${encodePath(itemPath)}`
 }
 
-// Watch for search term changes
+// Debounced filter term update (300ms delay to avoid excessive reactivity)
+const updateFilterTerm = debounce((term: string) => {
+  state.filters.term = term
+}, 300)
+
+// Watch for search term changes with debounce
 watch(searchTerm, (newTerm) => {
-  state.filters.term = newTerm
+  updateFilterTerm(newTerm)
 })
 
 // Methods
@@ -289,14 +318,17 @@ async function handleSearch(): Promise<void> {
   await executeSearch()
 }
 
-function handleItemClick(item: Resource): void {
-  // Navigate to file location or open preview
-  console.log('[AdvancedSearch] Item clicked:', item.name)
-  // TODO: Implement file navigation/preview
+function retrySearch(): void {
+  state.error = null
+  executeSearch()
+}
+
+function handleItemClick(_item: SearchResource): void {
+  // File navigation handled via context menu actions (Open in Files)
 }
 
 // Context menu functions
-function openContextMenu(event: MouseEvent, item: Resource): void {
+function openContextMenu(event: MouseEvent, item: SearchResource): void {
   event.preventDefault()
   event.stopPropagation()
   contextMenuItem.value = item
@@ -309,7 +341,7 @@ function closeContextMenu(): void {
   contextMenuItem.value = null
 }
 
-async function handleContextAction(action: string, item: Resource): Promise<void> {
+async function handleContextAction(action: string, item: SearchResource): Promise<void> {
   switch (action) {
     case 'download':
       await downloadItem(item)
@@ -326,37 +358,55 @@ async function handleContextAction(action: string, item: Resource): Promise<void
   }
 }
 
-async function downloadItem(item: Resource): Promise<void> {
+async function downloadItem(item: SearchResource): Promise<void> {
+  let url: string | null = null
   try {
     const response = await fetch(buildDavUrl(item), { credentials: 'include' })
-    if (!response.ok) throw new Error('Download failed')
+
+    if (!response.ok) {
+      // Provide specific error messages based on status
+      if (response.status === 404) {
+        throw new Error($gettext('File not found. It may have been moved or deleted.'))
+      } else if (response.status === 403) {
+        throw new Error($gettext('Permission denied. You may not have access to this file.'))
+      } else if (response.status === 401) {
+        throw new Error($gettext('Session expired. Please log in again.'))
+      } else {
+        throw new Error($gettext('Download failed (%{status} %{statusText})').replace('%{status}', String(response.status)).replace('%{statusText}', response.statusText))
+      }
+    }
 
     const blob = await response.blob()
-    const url = URL.createObjectURL(blob)
+    url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
     link.download = item.name || 'download'
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
-    URL.revokeObjectURL(url)
   } catch (err) {
+    const message = err instanceof Error ? err.message : $gettext('Unknown error occurred')
     console.error('Failed to download:', err)
-    alert('Failed to download file. Please try again.')
+    alert($gettext('Download failed: %{message}').replace('%{message}', message))
+  } finally {
+    // Always clean up the Blob URL to prevent memory leaks
+    if (url) {
+      URL.revokeObjectURL(url)
+    }
   }
 }
 
-function openInFiles(item: Resource): void {
+function openInFiles(item: SearchResource): void {
   const serverUrl = getServerUrl()
-  const fileId = (item as any).fileId || item.id || ''
-  const filePath = (item as any).path || item.name || ''
-  const driveAlias = (item as any).driveAlias || 'personal/home'
+  const fileId = item.fileId || item.id || ''
+  const filePath = item.path || item.name || ''
+  const driveAlias = item.driveAlias || 'personal/home'
 
   // Build paths for preview URL
   const fullPath = `${driveAlias}${filePath}`
   const lastSlash = filePath.lastIndexOf('/')
   const folderPath = lastSlash > 0 ? filePath.substring(0, lastSlash) : ''
-  const parentId = (item as any).parentReference?.id || (item as any).parentId || ''
+  const parentId = item.parentReference?.id || item.parentId || ''
 
   // Build preview URL with context parameters
   const params = new URLSearchParams({
@@ -371,59 +421,85 @@ function openInFiles(item: Resource): void {
   window.open(`${serverUrl}/preview/${encodePath(fullPath)}?${params}`, '_blank')
 }
 
-async function copyItemLink(item: Resource): Promise<void> {
+async function copyItemLink(item: SearchResource): Promise<void> {
   try {
-    const fileId = (item as any).fileId || item.id || ''
+    const fileId = item.fileId || item.id || ''
+    if (!fileId) {
+      throw new Error($gettext('File ID not available'))
+    }
+
     const link = `${getServerUrl()}/f/${encodeURIComponent(fileId)}`
+
+    // Check if clipboard API is available
+    if (!navigator.clipboard) {
+      throw new Error($gettext('Clipboard API not available. Try using HTTPS.'))
+    }
+
     await navigator.clipboard.writeText(link)
-    alert('Link copied to clipboard!')
+    alert($gettext('Link copied to clipboard!'))
   } catch (err) {
+    let message = $gettext('Unknown error')
+    if (err instanceof Error) {
+      // Handle specific clipboard errors
+      if (err.name === 'NotAllowedError') {
+        message = $gettext('Clipboard access denied. Please allow clipboard permissions.')
+      } else {
+        message = err.message
+      }
+    }
     console.error('Failed to copy link:', err)
-    alert('Failed to copy link. Please try again.')
+    alert($gettext('Failed to copy link: %{message}').replace('%{message}', message))
   }
 }
 
-async function confirmAndDelete(item: Resource): Promise<void> {
-  if (!confirm(`Are you sure you want to delete "${item.name}"?`)) return
+async function confirmAndDelete(item: SearchResource): Promise<void> {
+  if (!confirm($gettext('Are you sure you want to delete "%{name}"?').replace('%{name}', item.name || ''))) return
 
   try {
     const response = await fetch(buildDavUrl(item), {
       method: 'DELETE',
       credentials: 'include'
     })
-    if (!response.ok) throw new Error('Delete failed')
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error($gettext('File not found. It may have already been deleted.'))
+      } else if (response.status === 403) {
+        throw new Error($gettext('Permission denied. You may not have permission to delete this file.'))
+      } else if (response.status === 401) {
+        throw new Error($gettext('Session expired. Please log in again.'))
+      } else if (response.status === 423) {
+        throw new Error($gettext('File is locked. Please try again later.'))
+      } else {
+        throw new Error($gettext('Delete failed (%{status} %{statusText})').replace('%{status}', String(response.status)).replace('%{statusText}', response.statusText))
+      }
+    }
+
+    // Refresh search results
     await executeSearch()
   } catch (err) {
+    const message = err instanceof Error ? err.message : $gettext('Unknown error occurred')
     console.error('Failed to delete:', err)
-    alert('Failed to delete file. Please try again.')
+    alert($gettext('Delete failed: %{message}').replace('%{message}', message))
   }
 }
 
 function loadSavedQuery(query: SavedQuery): void {
-  // Deep clone the filters
+  // Deep clone the filters using JSON (structuredClone can't handle Vue reactive proxies)
   state.filters = JSON.parse(JSON.stringify(query.filters))
   searchTerm.value = query.filters.term || ''
   showSavedQueries.value = false
-  
+
   // Execute the search
   executeSearch()
 }
 
 function handleSaveQuery(): void {
   if (!saveQueryName.value.trim()) return
-  
+
   saveQuery(saveQueryName.value.trim(), state.filters)
   saveQueryName.value = ''
   showSaveDialog.value = false
-}
-
-function formatDate(dateStr: string): string {
-  const date = new Date(dateStr)
-  return date.toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  })
 }
 
 // KQL input handlers
@@ -641,7 +717,72 @@ onMounted(() => {
 }
 
 .error-state {
+  max-width: 500px;
+  margin: 0 auto;
+}
+
+.error-icon {
   color: var(--oc-color-danger, #cc0000);
+  margin-bottom: 1rem;
+}
+
+.error-title {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--oc-color-danger, #cc0000);
+  margin: 0 0 0.5rem 0;
+}
+
+.error-message {
+  font-size: 0.9375rem;
+  color: var(--oc-color-text-muted, #666);
+  margin: 0 0 1rem 0;
+}
+
+.error-suggestions {
+  text-align: left;
+  background: var(--oc-color-background-muted, #f9f9f9);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.suggestions-label {
+  font-weight: 500;
+  margin: 0 0 0.5rem 0;
+  color: var(--oc-color-text-default, #333);
+}
+
+.error-suggestions ul {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+
+.error-suggestions li {
+  margin: 0.25rem 0;
+  font-size: 0.875rem;
+}
+
+.retry-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  background: var(--oc-color-primary, #0066cc);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.retry-button:hover {
+  background: var(--oc-color-primary-hover, #0055aa);
+}
+
+.retry-icon {
+  font-size: 1.25rem;
 }
 
 .spinner {

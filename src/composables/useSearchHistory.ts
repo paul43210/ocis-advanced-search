@@ -3,10 +3,20 @@
  * Uses localStorage for persistence
  */
 
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import type { SavedQuery, SearchFilters } from '../types'
+import { useTranslations } from './useTranslations'
 
 const STORAGE_KEY = 'ocis-advanced-search-saved-queries'
+
+/** Result type for storage operations */
+interface StorageResult {
+  success: boolean
+  error?: string
+}
+
+/** Last storage error for user feedback */
+let lastStorageError: string | null = null
 
 /**
  * Load saved queries from localStorage
@@ -15,9 +25,17 @@ function loadFromStorage(): SavedQuery[] {
   try {
     const stored = localStorage.getItem(STORAGE_KEY)
     if (stored) {
-      return JSON.parse(stored)
+      const parsed = JSON.parse(stored)
+      // Validate that it's an array
+      if (!Array.isArray(parsed)) {
+        lastStorageError = 'Corrupted data: expected array'
+        return []
+      }
+      return parsed
     }
   } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    lastStorageError = `Failed to load: ${message}`
     console.error('[SearchHistory] Failed to load saved queries:', err)
   }
   return []
@@ -25,12 +43,23 @@ function loadFromStorage(): SavedQuery[] {
 
 /**
  * Save queries to localStorage
+ * @returns Result indicating success or failure with error message
  */
-function saveToStorage(queries: SavedQuery[]): void {
+function saveToStorage(queries: SavedQuery[]): StorageResult {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(queries))
+    lastStorageError = null
+    return { success: true }
   } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown error'
+    // Check for quota exceeded
+    if (err instanceof Error && err.name === 'QuotaExceededError') {
+      lastStorageError = 'Storage quota exceeded. Try deleting some saved searches.'
+    } else {
+      lastStorageError = `Failed to save: ${message}`
+    }
     console.error('[SearchHistory] Failed to save queries:', err)
+    return { success: false, error: lastStorageError }
   }
 }
 
@@ -45,6 +74,8 @@ function generateId(): string {
  * Composable for managing search history and saved queries
  */
 export function useSearchHistory() {
+  const { $gettext } = useTranslations()
+
   // Reactive state
   const savedQueries = ref<SavedQuery[]>(loadFromStorage())
 
@@ -52,43 +83,88 @@ export function useSearchHistory() {
   const recentSearches = ref<string[]>([])
   const MAX_RECENT = 10
 
+  // Expose storage error state
+  const storageError = ref<string | null>(lastStorageError)
+
   /**
    * Save a query with a name
+   * @returns The saved query, or null if save failed
    */
-  function saveQuery(name: string, filters: SearchFilters): SavedQuery {
+  function saveQuery(name: string, filters: SearchFilters): SavedQuery | null {
     const query: SavedQuery = {
       id: generateId(),
       name,
-      filters: JSON.parse(JSON.stringify(filters)), // Deep clone
+      // Use JSON for deep clone (structuredClone can't handle Vue reactive proxies)
+      filters: JSON.parse(JSON.stringify(filters)),
       savedAt: new Date().toISOString(),
     }
 
     savedQueries.value.unshift(query)
-    saveToStorage(savedQueries.value)
+    const result = saveToStorage(savedQueries.value)
 
+    if (!result.success) {
+      // Rollback on failure
+      savedQueries.value.shift()
+      storageError.value = result.error || $gettext('Failed to save query')
+      return null
+    }
+
+    storageError.value = null
     return query
   }
 
   /**
    * Delete a saved query
+   * @returns true if deleted successfully
    */
-  function deleteQuery(id: string): void {
+  function deleteQuery(id: string): boolean {
     const index = savedQueries.value.findIndex(q => q.id === id)
     if (index !== -1) {
-      savedQueries.value.splice(index, 1)
-      saveToStorage(savedQueries.value)
+      const removed = savedQueries.value.splice(index, 1)
+      const result = saveToStorage(savedQueries.value)
+
+      if (!result.success) {
+        // Rollback on failure
+        savedQueries.value.splice(index, 0, ...removed)
+        storageError.value = result.error || $gettext('Failed to delete query')
+        return false
+      }
+
+      storageError.value = null
+      return true
     }
+    return false
   }
 
   /**
    * Update a saved query's name
+   * @returns true if renamed successfully
    */
-  function renameQuery(id: string, newName: string): void {
+  function renameQuery(id: string, newName: string): boolean {
     const query = savedQueries.value.find(q => q.id === id)
     if (query) {
+      const oldName = query.name
       query.name = newName
-      saveToStorage(savedQueries.value)
+      const result = saveToStorage(savedQueries.value)
+
+      if (!result.success) {
+        // Rollback on failure
+        query.name = oldName
+        storageError.value = result.error || $gettext('Failed to rename query')
+        return false
+      }
+
+      storageError.value = null
+      return true
     }
+    return false
+  }
+
+  /**
+   * Clear storage error
+   */
+  function clearStorageError(): void {
+    storageError.value = null
   }
 
   /**
@@ -174,6 +250,7 @@ export function useSearchHistory() {
     // State
     savedQueries,
     recentSearches,
+    storageError,
 
     // Methods
     saveQuery,
@@ -182,6 +259,7 @@ export function useSearchHistory() {
     getQuery,
     addToRecent,
     clearRecent,
+    clearStorageError,
     isNameTaken,
     exportQueries,
     importQueries,

@@ -5,16 +5,9 @@
     tabindex="0"
     @keydown.enter="emit('click', item)"
   >
-    <!-- Thumbnail / Icon -->
+    <!-- File Icon -->
     <div class="result-thumbnail">
-      <img
-        v-if="isImage && thumbnailUrl"
-        :src="thumbnailUrl"
-        :alt="item.name"
-        class="thumbnail-img"
-        @error="thumbnailError = true"
-      />
-      <div v-else class="file-icon" :class="iconClass">
+      <div class="file-icon" :class="iconClass">
         <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" fill="currentColor">
           <path v-if="isImage" d="M4.828 21l-.02.02-.021-.02H2.992A.993.993 0 0 1 2 20.007V3.993A1 1 0 0 1 2.992 3h18.016c.548 0 .992.445.992.993v16.014a1 1 0 0 1-.992.993H4.828zM20 15V5H4v14L14 9l6 6zm0 2.828l-6-6L6.828 19H20v-1.172zM8 11a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/>
           <path v-else-if="isVideo" d="M2 3.993A1 1 0 0 1 2.992 3h18.016c.548 0 .992.445.992.993v16.014a1 1 0 0 1-.992.993H2.992A.993.993 0 0 1 2 20.007V3.993zM4 5v14h16V5H4zm6.622 3.415l4.879 3.252a.4.4 0 0 1 0 .666l-4.88 3.252A.4.4 0 0 1 10 12.919V8.08a.4.4 0 0 1 .622-.666z"/>
@@ -29,7 +22,7 @@
       <div class="result-name">{{ item.name }}</div>
       <div class="result-meta">
         <span class="result-path">{{ displayPath }}</span>
-        <span v-if="item.size" class="result-size">{{ formatSize(item.size) }}</span>
+        <span v-if="item.size" class="result-size">{{ formatBytes(item.size) }}</span>
         <span v-if="displayDate" class="result-date">{{ displayDate }}</span>
       </div>
       
@@ -60,7 +53,7 @@
         type="button"
         class="oc-button oc-button-s oc-button-passive oc-button-passive-raw"
         @click.stop="emit('click', item)"
-        title="Open"
+        :title="$gettext('Open')"
       >
         <span class="oc-icon oc-icon-s">→</span>
       </button>
@@ -69,19 +62,21 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import type { SearchResult } from '@/types'
+import { computed } from 'vue'
+import type { SearchResource } from '../types'
+import { formatBytes, formatDate } from '../utils/format'
+import { useTranslations } from '../composables/useTranslations'
+
+const { $gettext } = useTranslations()
 
 interface Props {
-  item: SearchResult
+  item: SearchResource
 }
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
-  click: [item: SearchResult]
+  click: [item: SearchResource]
 }>()
-
-const thumbnailError = ref(false)
 
 // Computed properties
 const isImage = computed(() => props.item.mimeType?.startsWith('image/'))
@@ -96,35 +91,25 @@ const iconClass = computed(() => {
   return 'icon-file'
 })
 
-const thumbnailUrl = computed(() => {
-  if (!isImage.value || thumbnailError.value) return null
-  // TODO: Generate proper thumbnail URL using oCIS WebDAV
-  // For now, return null
-  return null
-})
-
 const displayPath = computed(() => {
-  if (!props.item.path) return ''
-  // Remove filename from path
-  const parts = props.item.path.split('/')
-  parts.pop()
-  return parts.join('/') || '/'
+  const path = props.item.path
+  if (!path || typeof path !== 'string') return '/'
+
+  // Normalize: remove trailing slash, handle empty
+  const normalized = path.replace(/\/+$/, '') || '/'
+  if (normalized === '/') return '/'
+
+  // Find the last slash to extract parent directory
+  const lastSlash = normalized.lastIndexOf('/')
+  if (lastSlash <= 0) return '/'
+
+  return normalized.slice(0, lastSlash) || '/'
 })
 
 const displayDate = computed(() => {
   const dateStr = props.item.photo?.takenDateTime || props.item.lastModifiedDateTime
   if (!dateStr) return null
-  
-  try {
-    const date = new Date(dateStr)
-    return date.toLocaleDateString(undefined, {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    })
-  } catch {
-    return null
-  }
+  return formatDate(dateStr)
 })
 
 const hasPhotoData = computed(() => {
@@ -138,26 +123,22 @@ const hasPhotoData = computed(() => {
 })
 
 const cameraDisplay = computed(() => {
-  const make = props.item.photo?.cameraMake || ''
-  const model = props.item.photo?.cameraModel || ''
-  
-  if (make && model) {
-    // Avoid duplication like "Samsung Samsung SM-G998B"
-    if (model.toLowerCase().includes(make.toLowerCase())) {
-      return model
-    }
-    return `${make} ${model}`
-  }
-  return make || model || ''
-})
+  const make = props.item.photo?.cameraMake
+  const model = props.item.photo?.cameraModel
 
-// Utility functions
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
-}
+  // Early return for common cases (no string operations needed)
+  if (!make && !model) return ''
+  if (!make) return model || ''
+  if (!model) return make
+
+  // Only do case-insensitive comparison when both exist
+  // Cache lowercase to avoid calling twice
+  const modelLower = model.toLowerCase()
+  if (modelLower.includes(make.toLowerCase())) {
+    return model
+  }
+  return `${make} ${model}`
+})
 </script>
 
 <style scoped>
@@ -192,12 +173,6 @@ function formatSize(bytes: number): string {
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-.thumbnail-img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
 .file-icon {

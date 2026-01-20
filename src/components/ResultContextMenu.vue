@@ -42,32 +42,55 @@ const emit = defineEmits<{
 }>()
 
 const menuRef = ref<HTMLElement | null>(null)
+
+/**
+ * Controls whether click-outside should close the menu.
+ * Set to false initially and for 100ms after opening to prevent the
+ * same click that opened the menu from immediately closing it.
+ */
 const canClose = ref(false)
+
 const adjustedPosition = ref({ x: 0, y: 0 })
 
-// Adjust position to keep menu on screen
+/** Timeout ID for the close delay - stored for cleanup on unmount */
+let closeDelayTimeout: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * Adjust menu position to keep it within viewport bounds.
+ *
+ * Uses approximate dimensions (200x180) that match the CSS styling.
+ * If the menu styling changes significantly, update these values.
+ *
+ * Algorithm:
+ * 1. Start at click position (props.position)
+ * 2. If menu would overflow right edge, shift left
+ * 3. If menu would overflow bottom edge, shift up
+ * 4. Ensure position isn't negative (edge case for small screens)
+ */
 function adjustMenuPosition() {
   nextTick(() => {
     if (!menuRef.value) return
 
-    const menuWidth = 200 // approximate width
-    const menuHeight = 180 // approximate height
-    const padding = 10
+    // Approximate dimensions - should match CSS min-width and content height
+    // Update these if menu styling changes significantly
+    const menuWidth = 200
+    const menuHeight = 180
+    const padding = 10 // Margin from viewport edges
 
     let x = props.position.x
     let y = props.position.y
 
-    // Adjust if menu would go off the right edge
+    // Shift left if menu would overflow right edge
     if (x + menuWidth > window.innerWidth - padding) {
       x = window.innerWidth - menuWidth - padding
     }
 
-    // Adjust if menu would go off the bottom edge
+    // Shift up if menu would overflow bottom edge
     if (y + menuHeight > window.innerHeight - padding) {
       y = window.innerHeight - menuHeight - padding
     }
 
-    // Ensure not negative
+    // Clamp to viewport (handles small screens)
     x = Math.max(padding, x)
     y = Math.max(padding, y)
 
@@ -102,14 +125,33 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
-// When menu becomes visible, adjust position and wait before allowing close
+/**
+ * Handle menu visibility changes.
+ *
+ * When menu opens:
+ * 1. Disable click-outside closing (canClose = false)
+ * 2. Adjust position to fit in viewport
+ * 3. After 100ms delay, enable click-outside closing
+ *
+ * The 100ms delay prevents the click that opened the menu from
+ * immediately triggering click-outside and closing it. This is a
+ * common UX pattern for context menus.
+ */
 watch(() => props.visible, (visible) => {
+  // Clear any pending timeout (prevents memory leak if menu closes before timeout fires)
+  if (closeDelayTimeout) {
+    clearTimeout(closeDelayTimeout)
+    closeDelayTimeout = null
+  }
+
   if (visible) {
     canClose.value = false
     adjustMenuPosition()
+    // Delay before allowing click-outside to close
     nextTick(() => {
-      setTimeout(() => {
+      closeDelayTimeout = setTimeout(() => {
         canClose.value = true
+        closeDelayTimeout = null
       }, 100)
     })
   } else {
@@ -125,6 +167,11 @@ onMounted(() => {
 onUnmounted(() => {
   document.removeEventListener('click', handleClickOutside, true)
   document.removeEventListener('keydown', handleKeydown)
+  // Clear pending timeout to prevent memory leak
+  if (closeDelayTimeout) {
+    clearTimeout(closeDelayTimeout)
+    closeDelayTimeout = null
+  }
 })
 </script>
 

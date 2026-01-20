@@ -12,7 +12,7 @@
       v-if="filter.type === 'text'"
       type="text"
       class="oc-input filter-input"
-      :placeholder="filter.placeholder || 'Enter value...'"
+      :placeholder="filter.placeholder || $gettext('Enter value...')"
       :value="modelValue"
       @input="emit('update', ($event.target as HTMLInputElement).value)"
     />
@@ -24,7 +24,7 @@
       :value="modelValue || ''"
       @change="emit('update', ($event.target as HTMLSelectElement).value || null)"
     >
-      <option value="">{{ filter.placeholder || 'Select...' }}</option>
+      <option value="">{{ filter.placeholder || $gettext('Select...') }}</option>
       <option
         v-for="opt in filter.options"
         :key="opt.value"
@@ -56,17 +56,17 @@
       <input
         type="date"
         class="oc-input date-input"
-        :value="(modelValue as DateRange)?.from || ''"
-        @input="handleDateRangeChange('from', ($event.target as HTMLInputElement).value)"
-        placeholder="From"
+        :value="(modelValue as DateRange)?.start || ''"
+        @input="handleDateRangeChange('start', ($event.target as HTMLInputElement).value)"
+        :placeholder="$gettext('From')"
       />
-      <span class="date-separator">to</span>
+      <span class="date-separator">{{ $gettext('to') }}</span>
       <input
         type="date"
         class="oc-input date-input"
-        :value="(modelValue as DateRange)?.to || ''"
-        @input="handleDateRangeChange('to', ($event.target as HTMLInputElement).value)"
-        placeholder="To"
+        :value="(modelValue as DateRange)?.end || ''"
+        @input="handleDateRangeChange('end', ($event.target as HTMLInputElement).value)"
+        :placeholder="$gettext('To')"
       />
     </div>
     
@@ -80,7 +80,7 @@
         :step="filter.step"
         :value="(modelValue as [number, number])?.[0] || filter.min"
         @input="handleRangeChange(0, Number(($event.target as HTMLInputElement).value))"
-        placeholder="Min"
+        :placeholder="$gettext('Min')"
       />
       <span class="range-separator">-</span>
       <input
@@ -91,7 +91,7 @@
         :step="filter.step"
         :value="(modelValue as [number, number])?.[1] || filter.max"
         @input="handleRangeChange(1, Number(($event.target as HTMLInputElement).value))"
-        placeholder="Max"
+        :placeholder="$gettext('Max')"
       />
     </div>
     
@@ -105,13 +105,35 @@
         />
         <span class="toggle-slider"></span>
       </label>
-      <span class="toggle-label">{{ modelValue ? 'Yes' : 'No' }}</span>
+      <span class="toggle-label">{{ modelValue ? $gettext('Yes') : $gettext('No') }}</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import type { SearchFilter, DateRange } from '@/types'
+import { computed } from 'vue'
+import type { DateRange } from '../types'
+import { useTranslations } from '../composables/useTranslations'
+
+const { $gettext } = useTranslations()
+
+// Local type for filter configuration
+interface FilterOption {
+  label: string
+  value: string
+}
+
+interface SearchFilter {
+  id: string
+  label: string
+  type: 'text' | 'select' | 'multiSelect' | 'dateRange' | 'range' | 'boolean'
+  icon?: string
+  placeholder?: string
+  options?: FilterOption[]
+  min?: number
+  max?: number
+  step?: number
+}
 
 interface Props {
   filter: SearchFilter
@@ -139,11 +161,11 @@ function handleMultiSelectChange(optValue: string, checked: boolean) {
   emit('update', newValue.length > 0 ? newValue : null)
 }
 
-function handleDateRangeChange(field: 'from' | 'to', value: string) {
-  const current = (props.value as DateRange) || {}
-  const newValue = { ...current, [field]: value || undefined }
-  
-  if (!newValue.from && !newValue.to) {
+function handleDateRangeChange(field: 'start' | 'end', value: string) {
+  const current = (props.value as DateRange) || { start: '', end: '' }
+  const newValue = { ...current, [field]: value || '' }
+
+  if (!newValue.start && !newValue.end) {
     emit('update', null)
   } else {
     emit('update', newValue)
@@ -157,10 +179,6 @@ function handleRangeChange(index: 0 | 1, value: number) {
   
   emit('update', newValue)
 }
-</script>
-
-<script lang="ts">
-import { computed } from 'vue'
 </script>
 
 <style scoped>

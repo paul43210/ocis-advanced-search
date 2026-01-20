@@ -5,6 +5,44 @@
 import type { Resource } from '@ownclouders/web-client'
 
 /**
+ * Extended Resource type with oCIS-specific properties
+ * Used throughout the search extension for proper type safety
+ */
+export interface SearchResource extends Resource {
+  /** Space/drive ID */
+  spaceId?: string
+  /** Drive alias (e.g., 'personal/home') */
+  driveAlias?: string
+  /** Parent folder ID */
+  parentId?: string
+  /** Parent reference object */
+  parentReference?: {
+    id?: string
+    path?: string
+  }
+  /** Photo/EXIF metadata */
+  photo?: {
+    cameraMake?: string
+    cameraModel?: string
+    takenDateTime?: string
+    fNumber?: number
+    iso?: number
+    focalLength?: number
+    exposureNumerator?: number
+    exposureDenominator?: number
+    orientation?: number
+  }
+  /** GPS location data */
+  location?: {
+    latitude?: number
+    longitude?: number
+    altitude?: number
+  }
+  /** Last modified date (alternative property name) */
+  lastModifiedDateTime?: string
+}
+
+/**
  * Available search scope options
  */
 export type SearchScope = 'allFiles' | 'currentFolder' | 'space'

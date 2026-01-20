@@ -92,8 +92,45 @@
 import { ref, reactive, watch } from 'vue'
 import { useClientService, useConfigStore, useSpacesStore } from '@ownclouders/web-pkg'
 import { useTranslations } from '../composables/useTranslations'
+import { formatBytes, getSpaceIcon } from '../utils/format'
 
 const { $gettext } = useTranslations()
+
+// API Response Types
+interface GraphDrive {
+  id: string
+  name?: string
+  driveType?: string
+  quota?: { used?: number }
+}
+
+interface GraphDrivesResponse {
+  value?: GraphDrive[]
+}
+
+interface OcisConfig {
+  options?: {
+    fullTextSearch?: { enabled?: boolean; ocr?: boolean }
+    ocr?: boolean
+  }
+}
+
+interface OcsCapabilities {
+  ocs?: {
+    data?: {
+      capabilities?: {
+        search?: { ocr?: boolean }
+        files?: { content_search?: { ocr?: boolean } }
+      }
+      version?: {
+        string?: string
+        major?: number
+        minor?: number
+        micro?: number
+      }
+    }
+  }
+}
 
 interface SpaceInfo {
   id: string
@@ -145,142 +182,112 @@ function toggleExpanded() {
   expanded.value = !expanded.value
 }
 
-async function loadStats(): Promise<void> {
-  loading.value = true
+function getServerUrl(): string {
+  let serverUrl = configStore.serverUrl || ''
+  if (!serverUrl && typeof window !== 'undefined') {
+    serverUrl = window.location.origin
+  }
+  return serverUrl.replace(/\/$/, '')
+}
 
-  try {
-    // Get server URL - try configStore first, then derive from window location
-    let serverUrl = configStore.serverUrl || ''
-    if (!serverUrl && typeof window !== 'undefined') {
-      serverUrl = window.location.origin
-    }
-    serverUrl = serverUrl.replace(/\/$/, '')
-    stats.serverUrl = serverUrl
-
-    // Fetch spaces via Graph API
-    try {
-      const graphResponse = await clientService.httpAuthenticated.get(
-        `${serverUrl}/graph/v1.0/me/drives`
-      )
-      const drives = graphResponse.data?.value || []
-
-      stats.totalSpaces = drives.length
-      stats.spaces = drives.map((d: any) => ({
-        id: d.id,
-        name: d.name || 'Unknown',
-        driveType: d.driveType || 'unknown',
-        used: d.quota?.used || undefined,
-      }))
-
-      const personalSpace = drives.find((d: any) => d.driveType === 'personal')
-      stats.personalSpaceName = personalSpace?.name || null
-
-      console.log('[SearchStats] Spaces loaded:', stats.spaces.length)
-    } catch (err) {
-      console.error('[SearchStats] Failed to fetch spaces via Graph API:', err)
-      // Fall back to spacesStore if available
-      const spaces = spacesStore.spaces || []
-      stats.totalSpaces = spaces.length
-      stats.spaces = spaces.map(s => ({
-        id: s.id,
-        name: s.name || 'Unknown',
-        driveType: s.driveType || 'unknown',
-        used: (s as any).quota?.used || undefined,
-      }))
-      const personalSpace = spaces.find(s => s.driveType === 'personal')
-      stats.personalSpaceName = personalSpace?.name || null
-    }
-
-    // Try to get config.json for full-text search and Tika status
-    try {
-      const configResponse = await clientService.httpAuthenticated.get(`${serverUrl}/config.json`)
-      const config = configResponse.data
-
-      // Check for full-text search option
-      if (config?.options?.fullTextSearch) {
-        stats.fullTextEnabled = config.options.fullTextSearch.enabled !== false
-      } else {
-        // Default to enabled if not specified
-        stats.fullTextEnabled = true
-      }
-
-      // Check for Tika in config (oCIS exposes this if configured)
-      // The presence of fullTextSearch usually means Tika is enabled
-      stats.tikaEnabled = stats.fullTextEnabled
-
-      // Check for OCR in config
-      // OCR is typically enabled via SEARCH_EXTRACTOR_TIKA_ENABLED_OCR environment variable
-      if (config?.options?.fullTextSearch?.ocr !== undefined) {
-        stats.ocrEnabled = config.options.fullTextSearch.ocr === true
-      } else if (config?.options?.ocr !== undefined) {
-        stats.ocrEnabled = config.options.ocr === true
-      } else {
-        // OCR requires additional setup (Tesseract), so default to false unless confirmed
-        stats.ocrEnabled = false
-      }
-
-      console.log('[SearchStats] Config loaded:', { fullText: stats.fullTextEnabled, ocr: stats.ocrEnabled })
-    } catch (err) {
-      console.log('[SearchStats] Could not fetch config.json, assuming defaults')
-      stats.fullTextEnabled = true
-      stats.tikaEnabled = true
-      stats.ocrEnabled = false
-    }
-
-    // Try to detect OCR from capabilities
-    try {
-      const capResponse = await clientService.httpAuthenticated.get(
-        `${serverUrl}/ocs/v1.php/cloud/capabilities?format=json`
-      )
-      const caps = capResponse.data?.ocs?.data?.capabilities
-
-      // Check for search capabilities that might indicate OCR
-      if (caps?.search?.ocr !== undefined) {
-        stats.ocrEnabled = caps.search.ocr === true
-      } else if (caps?.files?.content_search?.ocr !== undefined) {
-        stats.ocrEnabled = caps.files.content_search.ocr === true
-      }
-    } catch (err) {
-      // Already have defaults set
-    }
-
-    // Try to get version from capabilities
-    try {
-      const capabilitiesResponse = await clientService.httpAuthenticated.get(
-        `${serverUrl}/ocs/v1.php/cloud/capabilities?format=json`
-      )
-      const capabilities = capabilitiesResponse.data?.ocs?.data
-      if (capabilities?.version?.string) {
-        stats.version = capabilities.version.string
-      } else if (capabilities?.version?.major) {
-        stats.version = `${capabilities.version.major}.${capabilities.version.minor}.${capabilities.version.micro}`
-      }
-    } catch (err) {
-      console.log('[SearchStats] Could not fetch capabilities')
-    }
-
-    // Count total indexed files by doing a wildcard search
-    await countIndexedFiles(serverUrl)
-
-  } catch (err) {
-    console.error('[SearchStats] Failed to load stats:', err)
-  } finally {
-    loading.value = false
+function mapDriveToSpaceInfo(drive: GraphDrive): SpaceInfo {
+  return {
+    id: drive.id,
+    name: drive.name || 'Unknown',
+    driveType: drive.driveType || 'unknown',
+    used: drive.quota?.used,
   }
 }
 
-async function countIndexedFiles(serverUrl: string): Promise<void> {
+async function fetchSpaces(serverUrl: string): Promise<void> {
   try {
-    // Find the personal space for searching
-    const personalSpace = stats.spaces.find(s => s.driveType === 'personal') || stats.spaces[0]
+    const response = await clientService.httpAuthenticated.get(`${serverUrl}/graph/v1.0/me/drives`)
+    const data = response.data as GraphDrivesResponse
+    const drives = data?.value || []
 
-    if (!personalSpace) {
-      console.log('[SearchStats] No space available for file count')
-      return
+    stats.totalSpaces = drives.length
+    stats.spaces = drives.map(mapDriveToSpaceInfo)
+    const personalSpace = drives.find((d) => d.driveType === 'personal')
+    stats.personalSpaceName = personalSpace?.name || null
+  } catch {
+    // Fall back to spacesStore if available
+    const spaces = (spacesStore.spaces || []) as GraphDrive[]
+    stats.totalSpaces = spaces.length
+    stats.spaces = spaces.map((s: GraphDrive) => mapDriveToSpaceInfo(s))
+    const personalSpace = spaces.find((s: GraphDrive) => s.driveType === 'personal')
+    stats.personalSpaceName = personalSpace?.name || null
+  }
+}
+
+async function fetchSearchConfig(serverUrl: string): Promise<void> {
+  try {
+    const response = await clientService.httpAuthenticated.get(`${serverUrl}/config.json`)
+    const config = response.data as OcisConfig
+
+    if (config?.options?.fullTextSearch) {
+      stats.fullTextEnabled = config.options.fullTextSearch.enabled !== false
+    } else {
+      stats.fullTextEnabled = true
     }
 
-    // Do a search with * to count all indexed files
-    // Use a large limit to get total count
+    stats.tikaEnabled = stats.fullTextEnabled
+
+    if (config?.options?.fullTextSearch?.ocr !== undefined) {
+      stats.ocrEnabled = config.options.fullTextSearch.ocr === true
+    } else if (config?.options?.ocr !== undefined) {
+      stats.ocrEnabled = config.options.ocr === true
+    } else {
+      stats.ocrEnabled = false
+    }
+  } catch {
+    stats.fullTextEnabled = true
+    stats.tikaEnabled = true
+    stats.ocrEnabled = false
+  }
+}
+
+async function fetchCapabilities(serverUrl: string): Promise<void> {
+  try {
+    const response = await clientService.httpAuthenticated.get(
+      `${serverUrl}/ocs/v1.php/cloud/capabilities?format=json`
+    )
+    const data = response.data as OcsCapabilities
+    const caps = data?.ocs?.data?.capabilities
+
+    if (caps?.search?.ocr !== undefined) {
+      stats.ocrEnabled = caps.search.ocr === true
+    } else if (caps?.files?.content_search?.ocr !== undefined) {
+      stats.ocrEnabled = caps.files.content_search.ocr === true
+    }
+
+    const version = data?.ocs?.data?.version
+    if (version?.string) {
+      stats.version = version.string
+    } else if (version?.major !== undefined) {
+      stats.version = `${version.major}.${version.minor}.${version.micro}`
+    }
+  } catch {
+    // Use defaults already set
+  }
+}
+
+/**
+ * Count total indexed files by performing a wildcard search.
+ *
+ * Uses regex-based counting of <d:response> elements instead of full XML
+ * parsing for performance - proper parsing would be slower for large results.
+ * Each <d:response> element represents one indexed file.
+ *
+ * NOTE: This function depends on spaces being loaded first (needs personalSpace.id).
+ *
+ * @param serverUrl - Base server URL
+ */
+async function countIndexedFiles(serverUrl: string): Promise<void> {
+  const personalSpace = stats.spaces.find(s => s.driveType === 'personal') || stats.spaces[0]
+  if (!personalSpace) return
+
+  try {
+    // Wildcard search to count all indexed files (up to 10000)
     const searchBody = `<?xml version="1.0" encoding="UTF-8"?>
 <oc:search-files xmlns:oc="http://owncloud.org/ns" xmlns:d="DAV:">
   <oc:search>
@@ -295,44 +302,54 @@ async function countIndexedFiles(serverUrl: string): Promise<void> {
     const response = await clientService.httpAuthenticated.request({
       method: 'REPORT',
       url: `${serverUrl}/dav/spaces/${encodeURIComponent(personalSpace.id)}`,
-      headers: {
-        'Content-Type': 'application/xml'
-      },
+      headers: { 'Content-Type': 'application/xml' },
       data: searchBody
     })
 
-    // Count <d:response> elements
     const xmlText = typeof response.data === 'string'
       ? response.data
       : new XMLSerializer().serializeToString(response.data)
 
+    // Count <d:response> elements using regex (faster than DOM parsing for large results)
     const responseMatches = xmlText.match(/<d:response>/gi) || []
     stats.totalIndexedFiles = responseMatches.length
-
-    console.log('[SearchStats] Indexed files count:', stats.totalIndexedFiles)
-  } catch (err) {
-    console.error('[SearchStats] Failed to count indexed files:', err)
+  } catch {
     stats.totalIndexedFiles = null
   }
 }
 
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
-}
+/**
+ * Load all search statistics in an optimized two-phase approach.
+ *
+ * Phase 1 (parallel): Fetch spaces, search config, and capabilities simultaneously.
+ *   These API calls are independent and can run concurrently for faster loading.
+ *
+ * Phase 2 (sequential): Count indexed files.
+ *   This must run after Phase 1 because it needs the space ID from fetchSpaces().
+ *
+ * This pattern reduces total load time from ~4 sequential requests to ~2 round trips.
+ */
+async function loadStats(): Promise<void> {
+  loading.value = true
 
-function getSpaceIcon(driveType: string): string {
-  switch (driveType) {
-    case 'personal': return '👤'
-    case 'project': return '📁'
-    case 'virtual': return '🔗'
-    case 'share': return '🤝'
-    default: return '📂'
+  try {
+    const serverUrl = getServerUrl()
+    stats.serverUrl = serverUrl
+
+    // Phase 1: Run independent API calls in parallel
+    await Promise.all([
+      fetchSpaces(serverUrl),
+      fetchSearchConfig(serverUrl),
+      fetchCapabilities(serverUrl)
+    ])
+
+    // Phase 2: countIndexedFiles depends on spaces being loaded (needs space ID)
+    await countIndexedFiles(serverUrl)
+  } finally {
+    loading.value = false
   }
 }
+
 </script>
 
 <style scoped>

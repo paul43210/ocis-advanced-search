@@ -5,7 +5,7 @@
 
 import { ref, computed, reactive } from 'vue'
 import { useClientService, useConfigStore, useSpacesStore } from '@ownclouders/web-pkg'
-import type { Resource } from '@ownclouders/web-client'
+import type { Resource, SpaceResource } from '@ownclouders/web-client'
 import type {
   SearchFilters,
   AdvancedSearchState,
@@ -18,30 +18,69 @@ import {
   escapeXML,
   buildStandardKQL,
   buildPhotoKQL,
-  buildDateRangeQuery,
-  buildRangeQuery,
 } from '../utils/kql'
+import { formatBytes } from '../utils/format'
+import { useTranslations } from './useTranslations'
 
 /**
- * Parse WebDAV REPORT search response XML
+ * Parse WebDAV REPORT search response XML into Resource objects.
+ *
+ * The oCIS search API returns XML in WebDAV multistatus format:
+ * <d:multistatus>
+ *   <d:response>
+ *     <d:href>/dav/spaces/space-id/path/to/file.pdf</d:href>
+ *     <d:propstat>
+ *       <d:prop>
+ *         <d:displayname>file.pdf</d:displayname>
+ *         <d:getcontenttype>application/pdf</d:getcontenttype>
+ *         ...
+ *       </d:prop>
+ *     </d:propstat>
+ *   </d:response>
+ * </d:multistatus>
+ *
+ * @param xmlText - Raw XML response from WebDAV REPORT request
+ * @param spaceId - The space ID used in the request (for path extraction)
+ * @param driveAlias - Drive alias for navigation (e.g., "personal/admin")
+ * @returns Array of Resource objects ready for display
+ * @throws Error if XML is malformed or contains parser errors
  */
 function parseSearchResponse(xmlText: string, spaceId: string, driveAlias: string): Resource[] {
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlText, 'application/xml')
+
+  // DOMParser doesn't throw on invalid XML - check for parsererror element instead
+  const parserError = doc.querySelector('parsererror')
+  if (parserError) {
+    throw new Error(`XML parsing failed: ${parserError.textContent?.slice(0, 100) || 'Unknown error'}`)
+  }
+
   const responses = doc.getElementsByTagNameNS('DAV:', 'response')
   const items: Resource[] = []
+  let skippedCount = 0
 
   for (let i = 0; i < responses.length; i++) {
     const response = responses[i]
-    const href = response.getElementsByTagNameNS('DAV:', 'href')[0]?.textContent || ''
+    const href = response.getElementsByTagNameNS('DAV:', 'href')[0]?.textContent
+
+    // href is required - skip malformed response entries
+    if (!href) {
+      skippedCount++
+      continue
+    }
+
+    // Extract standard WebDAV properties
     const displayname = response.getElementsByTagNameNS('DAV:', 'displayname')[0]?.textContent || ''
     const contentType = response.getElementsByTagNameNS('DAV:', 'getcontenttype')[0]?.textContent || ''
     const contentLength = response.getElementsByTagNameNS('DAV:', 'getcontentlength')[0]?.textContent || '0'
     const lastModified = response.getElementsByTagNameNS('DAV:', 'getlastmodified')[0]?.textContent || ''
+
+    // Extract ownCloud-specific properties (oc: namespace)
     const fileId = response.getElementsByTagNameNS('http://owncloud.org/ns', 'fileid')[0]?.textContent || ''
     const parentId = response.getElementsByTagNameNS('http://owncloud.org/ns', 'file-parent')[0]?.textContent || ''
 
-    // Extract path from href
+    // Extract file path from href by removing the WebDAV space prefix.
+    // Server may return spaceId URL-encoded or not, so check both formats.
     const spacePrefix = `/dav/spaces/${spaceId}`
     const encodedSpacePrefix = `/dav/spaces/${encodeURIComponent(spaceId)}`
     let path = href
@@ -51,13 +90,18 @@ function parseSearchResponse(xmlText: string, spaceId: string, driveAlias: strin
       path = decodeURIComponent(href.substring(encodedSpacePrefix.length))
     }
 
-    // Determine if it's a folder
+    // Folders have special MIME type or trailing slash
     const isFolder = contentType === 'httpd/unix-directory' || href.endsWith('/')
 
+    // Fallback: extract filename from path if displayname element is empty
+    const pathParts = path.split('/')
+    const nameFromPath = pathParts.length > 0 ? pathParts[pathParts.length - 1] : ''
+
     items.push({
+      // Generate synthetic ID if server doesn't return fileid
       id: fileId || `${spaceId}!${path}`,
       fileId,
-      name: displayname || path.split('/').pop() || '',
+      name: displayname || nameFromPath || 'Unknown',
       path: path,
       webDavPath: href,
       mimeType: contentType,
@@ -65,7 +109,7 @@ function parseSearchResponse(xmlText: string, spaceId: string, driveAlias: strin
       mdate: lastModified,
       type: isFolder ? 'folder' : 'file',
       isFolder,
-      // Additional fields expected by Resource type
+      // Required fields for Resource type compatibility
       etag: '',
       permissions: '',
       starred: false,
@@ -73,6 +117,10 @@ function parseSearchResponse(xmlText: string, spaceId: string, driveAlias: strin
       driveAlias: driveAlias,
       parentId: parentId,
     } as Resource)
+  }
+
+  if (skippedCount > 0 && typeof console !== 'undefined') {
+    console.warn(`[parseSearchResponse] Skipped ${skippedCount} items with missing href`)
   }
 
   return items
@@ -86,6 +134,7 @@ export function useAdvancedSearch() {
   const clientService = useClientService()
   const configStore = useConfigStore()
   const spacesStore = useSpacesStore()
+  const { $gettext } = useTranslations()
 
   // Reactive state
   const state = reactive<AdvancedSearchState>({
@@ -101,13 +150,16 @@ export function useAdvancedSearch() {
   // Page size for pagination
   const pageSize = ref(100)
 
+  // AbortController for cancelling in-flight requests
+  let currentAbortController: AbortController | null = null
+
   /**
    * Build KQL query string from current filters
    */
   const buildKQLQuery = computed(() => {
     const { standard, photo, term } = state.filters
     const parts = [
-      ...buildStandardKQL(standard, term),
+      ...buildStandardKQL(standard, term || ''),
       ...buildPhotoKQL(photo)
     ]
     return parts.length > 0 ? parts.join(' AND ') : '*'
@@ -124,7 +176,7 @@ export function useAdvancedSearch() {
     if (term && term.trim()) {
       filters.push({
         id: 'term',
-        label: 'Search',
+        label: $gettext('Search'),
         field: 'name',
         value: term.trim(),
         category: 'text',
@@ -135,7 +187,7 @@ export function useAdvancedSearch() {
     if (standard.name) {
       filters.push({
         id: 'name',
-        label: 'Name',
+        label: $gettext('Name'),
         field: 'name',
         value: standard.name,
         category: 'standard',
@@ -145,7 +197,7 @@ export function useAdvancedSearch() {
     if (standard.type) {
       filters.push({
         id: 'type',
-        label: 'Type',
+        label: $gettext('Type'),
         field: 'type',
         value: standard.type,
         category: 'standard',
@@ -155,7 +207,7 @@ export function useAdvancedSearch() {
     if (standard.mediaType) {
       filters.push({
         id: 'mediaType',
-        label: 'Media Type',
+        label: $gettext('Media Type'),
         field: 'mediatype',
         value: standard.mediaType,
         category: 'standard',
@@ -165,7 +217,7 @@ export function useAdvancedSearch() {
     if (standard.tags) {
       filters.push({
         id: 'tags',
-        label: 'Tags',
+        label: $gettext('Tags'),
         field: 'tags',
         value: standard.tags,
         category: 'standard',
@@ -177,7 +229,7 @@ export function useAdvancedSearch() {
       const max = standard.sizeRange.max ? formatBytes(standard.sizeRange.max) : '∞'
       filters.push({
         id: 'size',
-        label: 'Size',
+        label: $gettext('Size'),
         field: 'size',
         value: `${min} - ${max}`,
         category: 'standard',
@@ -187,9 +239,9 @@ export function useAdvancedSearch() {
     if (standard.modifiedRange && (standard.modifiedRange.start || standard.modifiedRange.end)) {
       filters.push({
         id: 'mtime',
-        label: 'Modified',
+        label: $gettext('Modified'),
         field: 'mtime',
-        value: `${standard.modifiedRange.start || '*'} to ${standard.modifiedRange.end || '*'}`,
+        value: `${standard.modifiedRange.start || '*'} ${$gettext('to')} ${standard.modifiedRange.end || '*'}`,
         category: 'standard',
       })
     }
@@ -197,7 +249,7 @@ export function useAdvancedSearch() {
     if (standard.content) {
       filters.push({
         id: 'content',
-        label: 'Content',
+        label: $gettext('Content'),
         field: 'content',
         value: standard.content,
         category: 'text',
@@ -208,7 +260,7 @@ export function useAdvancedSearch() {
     if (photo.cameraMake) {
       filters.push({
         id: 'cameraMake',
-        label: 'Camera Make',
+        label: $gettext('Camera Make'),
         field: 'photo.cameraMake',
         value: photo.cameraMake,
         category: 'photo',
@@ -218,7 +270,7 @@ export function useAdvancedSearch() {
     if (photo.cameraModel) {
       filters.push({
         id: 'cameraModel',
-        label: 'Camera Model',
+        label: $gettext('Camera Model'),
         field: 'photo.cameraModel',
         value: photo.cameraModel,
         category: 'photo',
@@ -228,9 +280,9 @@ export function useAdvancedSearch() {
     if (photo.takenDateRange && (photo.takenDateRange.start || photo.takenDateRange.end)) {
       filters.push({
         id: 'takenDate',
-        label: 'Date Taken',
+        label: $gettext('Date Taken'),
         field: 'photo.takenDateTime',
-        value: `${photo.takenDateRange.start || '*'} to ${photo.takenDateRange.end || '*'}`,
+        value: `${photo.takenDateRange.start || '*'} ${$gettext('to')} ${photo.takenDateRange.end || '*'}`,
         category: 'photo',
       })
     }
@@ -238,7 +290,7 @@ export function useAdvancedSearch() {
     if (photo.isoRange && (photo.isoRange.min || photo.isoRange.max)) {
       filters.push({
         id: 'iso',
-        label: 'ISO',
+        label: $gettext('ISO'),
         field: 'photo.iso',
         value: `${photo.isoRange.min || '0'} - ${photo.isoRange.max || '∞'}`,
         category: 'photo',
@@ -248,7 +300,7 @@ export function useAdvancedSearch() {
     if (photo.fNumberRange && (photo.fNumberRange.min || photo.fNumberRange.max)) {
       filters.push({
         id: 'fNumber',
-        label: 'Aperture',
+        label: $gettext('Aperture'),
         field: 'photo.fNumber',
         value: `f/${photo.fNumberRange.min || '?'} - f/${photo.fNumberRange.max || '?'}`,
         category: 'photo',
@@ -258,7 +310,7 @@ export function useAdvancedSearch() {
     if (photo.focalLengthRange && (photo.focalLengthRange.min || photo.focalLengthRange.max)) {
       filters.push({
         id: 'focalLength',
-        label: 'Focal Length',
+        label: $gettext('Focal Length'),
         field: 'photo.focalLength',
         value: `${photo.focalLengthRange.min || '?'}mm - ${photo.focalLengthRange.max || '?'}mm`,
         category: 'photo',
@@ -272,6 +324,13 @@ export function useAdvancedSearch() {
    * Execute search with current filters using WebDAV REPORT
    */
   async function executeSearch(page = 0): Promise<void> {
+    // Cancel any in-flight request to prevent race conditions
+    if (currentAbortController) {
+      currentAbortController.abort()
+    }
+    currentAbortController = new AbortController()
+    const abortSignal = currentAbortController.signal
+
     state.loading = true
     state.error = null
     state.kqlQuery = buildKQLQuery.value
@@ -280,18 +339,15 @@ export function useAdvancedSearch() {
       const serverUrl = (configStore.serverUrl || '').replace(/\/$/, '')
 
       // Get the personal space (or first available space)
-      const spaces = spacesStore.spaces
-      console.log('[AdvancedSearch] Available spaces:', spaces.length, spaces.map(s => ({ id: s.id, name: s.name, driveType: s.driveType })))
-
-      const personalSpace = spaces.find(s => s.driveType === 'personal') || spaces[0]
+      const spaces = spacesStore.spaces as SpaceResource[]
+      const personalSpace = spaces.find((s: SpaceResource) => s.driveType === 'personal') || spaces[0]
 
       if (!personalSpace) {
-        throw new Error('No space available for search')
+        throw new Error($gettext('No space available for search'))
       }
 
       const spaceId = personalSpace.id
-      const driveAlias = (personalSpace as any).driveAlias || 'personal/home'
-      console.log('[AdvancedSearch] Using space:', spaceId, personalSpace.name, 'driveAlias:', driveAlias)
+      const driveAlias = personalSpace.driveAlias || 'personal/home'
 
       const limit = pageSize.value
       const pattern = state.kqlQuery
@@ -317,23 +373,18 @@ export function useAdvancedSearch() {
   </d:prop>
 </oc:search-files>`
 
-      console.log('[AdvancedSearch] Executing search:', { spaceId, pattern, limit })
-
       const response = await clientService.httpAuthenticated.request({
         method: 'REPORT',
         url: `${serverUrl}/dav/spaces/${encodeURIComponent(spaceId)}`,
         headers: {
           'Content-Type': 'application/xml'
         },
-        data: searchBody
+        data: searchBody,
+        signal: abortSignal
       })
 
-      console.log('[AdvancedSearch] Response status:', response.status)
       const xmlText = typeof response.data === 'string' ? response.data : new XMLSerializer().serializeToString(response.data)
-      console.log('[AdvancedSearch] Response length:', xmlText.length)
-
       const items = parseSearchResponse(xmlText, spaceId, driveAlias)
-      console.log('[AdvancedSearch] Parsed items:', items.length)
 
       state.results = {
         totalCount: items.length,
@@ -341,9 +392,34 @@ export function useAdvancedSearch() {
         hasMore: items.length === limit,
         currentPage: page,
       }
-    } catch (err) {
-      console.error('[AdvancedSearch] Search error:', err)
-      state.error = err instanceof Error ? err.message : 'Search failed'
+    } catch (err: unknown) {
+      // Ignore abort errors (request was cancelled by a newer search)
+      if (err instanceof Error && err.name === 'AbortError') {
+        return
+      }
+      // Also check for axios cancel
+      if (err && typeof err === 'object' && 'code' in err && (err as { code: string }).code === 'ERR_CANCELED') {
+        return
+      }
+
+      const error = err as { response?: { status?: number; data?: unknown }; code?: string; message?: string }
+      const status = error.response?.status
+
+      // Specific HTTP error handling
+      if (status === 503) {
+        state.error = $gettext('The search service is temporarily unavailable (503 Service Unavailable). The service may be starting up or under maintenance.')
+      } else if (status === 502) {
+        state.error = $gettext('The search service is not responding (502 Bad Gateway). Please try again in a moment.')
+      } else if (status === 500) {
+        state.error = $gettext('The search service encountered an error (500 Internal Server Error). Please try again.')
+      } else if (status === 401 || status === 403) {
+        state.error = $gettext('Authentication error (401 Unauthorized). Your session may have expired.')
+      } else if (error.code === 'ECONNREFUSED' || error.message?.includes('Network') || error.message?.includes('network')) {
+        state.error = $gettext('Unable to connect to the server. Please check your network connection.')
+      } else {
+        state.error = error.message || $gettext('Search failed. Please try again.')
+      }
+
       state.results = createEmptyResults()
     } finally {
       state.loading = false
@@ -455,51 +531,77 @@ export function useAdvancedSearch() {
   }
 
   /**
-   * Parse a KQL query string and populate the filters
-   * This is the reverse of buildKQLQuery
+   * Maximum recursion depth for KQL parsing.
+   * Prevents stack overflow from maliciously crafted or malformed nested queries.
+   * Value of 10 is generous for legitimate queries (rarely >3 levels deep).
+   */
+  const MAX_KQL_PARSE_DEPTH = 10
+
+  /**
+   * Parse a KQL query string and populate the filters (reverse of buildKQLQuery).
+   *
+   * Algorithm:
+   * 1. Reset all filters to empty state
+   * 2. Split the KQL string by AND operators (respecting parentheses)
+   * 3. Parse each part to extract field:value pairs or range expressions
+   * 4. Map parsed values to corresponding filter fields
+   *
+   * Handles: field:value, field>=value, field<=value, (range AND range), nested parentheses
+   *
+   * @param kql - KQL query string (e.g., "name:*.pdf AND size>=1000")
    */
   function parseKqlToFilters(kql: string): void {
-    // Reset filters first
     state.filters = createEmptyFilters()
 
     if (!kql || kql === '*') {
       return
     }
 
-    // Split by AND (but not inside parentheses)
+    // Split by AND while preserving parenthesized expressions as single units
     const parts = splitKqlParts(kql)
 
     for (const part of parts) {
-      parseKqlPart(part.trim())
+      parseKqlPart(part.trim(), 0)
     }
   }
 
   /**
-   * Split KQL by AND, respecting parentheses
+   * Split KQL string by AND operators, respecting parentheses.
+   *
+   * Example: "name:foo AND (size>=100 AND size<=1000) AND type:file"
+   * Returns: ["name:foo", "(size>=100 AND size<=1000)", "type:file"]
+   *
+   * The parenthesized range expression is kept together because AND inside
+   * parentheses should not split the expression.
+   *
+   * @param kql - KQL query string
+   * @returns Array of KQL parts to be parsed individually
    */
   function splitKqlParts(kql: string): string[] {
     const parts: string[] = []
     let current = ''
-    let depth = 0
+    let depth = 0 // Tracks parenthesis nesting depth
 
+    // Split by AND keyword (case-insensitive), capturing the AND token
     const tokens = kql.split(/\s+(AND)\s+/i)
 
     for (const token of tokens) {
       if (token.toUpperCase() === 'AND') {
+        // Only split on AND when at depth 0 (not inside parentheses)
         if (depth === 0) {
           if (current.trim()) {
             parts.push(current.trim())
           }
           current = ''
         } else {
+          // Inside parentheses - keep AND as part of the expression
           current += ' AND '
         }
       } else {
-        // Count parentheses
-        for (const char of token) {
-          if (char === '(') depth++
-          if (char === ')') depth--
-        }
+        // Count parentheses using regex (faster than char-by-char iteration)
+        const openCount = (token.match(/\(/g) || []).length
+        const closeCount = (token.match(/\)/g) || []).length
+        depth += openCount - closeCount
         current += token
       }
     }
@@ -512,29 +614,47 @@ export function useAdvancedSearch() {
   }
 
   /**
-   * Parse a single KQL part and update filters
+   * Parse a single KQL part and update the corresponding filter fields.
+   *
+   * Handles three types of expressions:
+   * 1. Parenthesized: "(expr)" - unwrap and recurse, or detect range pairs
+   * 2. Range comparison: "field>=value" or "field<=value"
+   * 3. Field:value: "name:*.pdf", "mediatype:image/*"
+   * 4. Free text: anything without ":" becomes a search term
+   *
+   * @param part - The KQL part to parse (e.g., "name:foo", "size>=100")
+   * @param depth - Current recursion depth to prevent stack overflow from malformed queries
    */
-  function parseKqlPart(part: string): void {
-    // Handle parenthesized expressions (unwrap and parse recursively)
+  function parseKqlPart(part: string, depth: number): void {
+    if (depth >= MAX_KQL_PARSE_DEPTH) {
+      console.warn('[useAdvancedSearch] KQL parsing depth limit reached, skipping:', part.slice(0, 50))
+      return
+    }
+
+    // Handle parenthesized expressions - either range pairs or nested queries
     if (part.startsWith('(') && part.endsWith(')')) {
       const inner = part.slice(1, -1)
-      // Check if it's a range expression
+
+      // Check if this is a range expression like "(size>=100 AND size<=1000)"
+      // Heuristic: if it has AND with exactly 2 parts that are both range
+      // comparisons on the same field, treat as a combined min/max range
       if (inner.includes(' AND ')) {
         const rangeParts = inner.split(/\s+AND\s+/i)
-        // Try to parse as range (e.g., size>=100 AND size<=1000)
         if (rangeParts.length === 2) {
           const range1 = parseRangePart(rangeParts[0])
           const range2 = parseRangePart(rangeParts[1])
+          // Both parts are ranges on the same field = combined range filter
           if (range1 && range2 && range1.field === range2.field) {
             applyRangeToFilters(range1.field, range1, range2)
             return
           }
         }
       }
-      // Not a range, parse each part
+
+      // Not a range pair - recursively parse the inner content
       const subParts = splitKqlParts(inner)
       for (const subPart of subParts) {
-        parseKqlPart(subPart.trim())
+        parseKqlPart(subPart.trim(), depth + 1)
       }
       return
     }
@@ -600,14 +720,21 @@ export function useAdvancedSearch() {
         state.filters.photo.orientation = parseInt(value, 10)
         break
       default:
-        // Unknown field - add to search term
-        console.log('[parseKqlPart] Unknown field:', field, value)
+        // Unknown field - ignore silently
         break
     }
   }
 
   /**
-   * Parse a range comparison part (e.g., size>=100, mtime<=2024-01-01)
+   * Parse a range comparison expression (e.g., "size>=100", "mtime<=2024-01-01").
+   *
+   * Regex breakdown: ^([a-z.]+)(>=|<=|>|<)(.+)$
+   * - ([a-z.]+)  = field name (allows dots for photo.iso, photo.fnumber, etc.)
+   * - (>=|<=|>|<) = comparison operator
+   * - (.+)       = value (number or date string)
+   *
+   * @param part - KQL part that might be a range expression
+   * @returns Parsed field/operator/value or null if not a range expression
    */
   function parseRangePart(part: string): { field: string; op: string; value: string } | null {
     const match = part.match(/^([a-z.]+)(>=|<=|>|<)(.+)$/i)
@@ -622,7 +749,17 @@ export function useAdvancedSearch() {
   }
 
   /**
-   * Apply range values to the appropriate filter
+   * Apply parsed range values to the appropriate filter field.
+   *
+   * Maps KQL field names to filter objects with appropriate type conversions:
+   * - size: parseInt for bytes
+   * - mtime: string for ISO date
+   * - photo.iso: parseInt for numeric ISO
+   * - photo.fnumber, photo.focallength: parseFloat for decimal values
+   *
+   * @param field - KQL field name (e.g., "size", "photo.iso")
+   * @param range1 - First range comparison (always present)
+   * @param range2 - Second range comparison (for combined min/max), or null
    */
   function applyRangeToFilters(
     field: string,
@@ -632,6 +769,7 @@ export function useAdvancedSearch() {
     const ranges = [range1]
     if (range2) ranges.push(range2)
 
+    // Extract min and max from the range operators
     let min: string | number | undefined
     let max: string | number | undefined
 
@@ -681,7 +819,8 @@ export function useAdvancedSearch() {
         }
         break
       default:
-        console.log('[applyRangeToFilters] Unknown range field:', field)
+        // Unknown range field - ignore silently
+        break
     }
   }
 
@@ -709,15 +848,4 @@ export function useAdvancedSearch() {
     fetchCameraMakes,
     fetchCameraModels,
   }
-}
-
-/**
- * Helper: Format bytes for display
- */
-function formatBytes(bytes: number): string {
-  if (bytes === 0) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i]
 }

@@ -122,6 +122,11 @@
       </h4>
 
       <div v-if="showPhoto" class="filter-group">
+        <!-- Error message for camera data fetch -->
+        <div v-if="photoDataError" class="photo-data-error">
+          {{ photoDataError }}
+        </div>
+
         <!-- Camera Make -->
         <div class="filter-row">
           <label>{{ $gettext('Camera Make') }}</label>
@@ -282,6 +287,18 @@
   </div>
 </template>
 
+<!--
+  Type Assertion Note:
+
+  Throughout this template, you'll see type assertions like:
+    ($event.target as HTMLInputElement).value
+    ($event.target as HTMLSelectElement).value
+
+  These are necessary because Vue's event typing provides $event.target as
+  generic EventTarget type. TypeScript can't infer from the template that
+  it's specifically an input or select element, so we must cast explicitly
+  to access .value property.
+-->
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import type { SearchFilters } from '../types'
@@ -314,6 +331,7 @@ const showKQL = ref(true)
 const discoveredCameraMakes = ref<string[]>([])
 const discoveredCameraModels = ref<string[]>([])
 const loadingPhotoData = ref(false)
+const photoDataError = ref<string | null>(null)
 
 // Merge static and discovered camera makes
 const cameraMakes = computed(() => {
@@ -329,17 +347,37 @@ const cameraModels = computed(() => {
 const mediaTypes = COMMON_MEDIA_TYPES
 
 // Fetch camera makes and models when photo section is expanded
+// Check loadingPhotoData to prevent duplicate concurrent requests
 watch(showPhoto, async (isShown) => {
-  if (isShown && discoveredCameraMakes.value.length === 0) {
+  if (isShown && discoveredCameraMakes.value.length === 0 && !loadingPhotoData.value) {
     loadingPhotoData.value = true
+    photoDataError.value = null
     try {
-      // Fetch both in parallel
-      const [makes, models] = await Promise.all([
+      // Fetch both in parallel with individual error handling
+      const [makesResult, modelsResult] = await Promise.allSettled([
         props.fetchCameraMakes?.() ?? Promise.resolve([]),
         props.fetchCameraModels?.() ?? Promise.resolve([])
       ])
-      discoveredCameraMakes.value = makes
-      discoveredCameraModels.value = models
+
+      if (makesResult.status === 'fulfilled') {
+        discoveredCameraMakes.value = makesResult.value
+      } else {
+        console.error('[SearchFilters] Failed to fetch camera makes:', makesResult.reason)
+      }
+
+      if (modelsResult.status === 'fulfilled') {
+        discoveredCameraModels.value = modelsResult.value
+      } else {
+        console.error('[SearchFilters] Failed to fetch camera models:', modelsResult.reason)
+      }
+
+      // Set error if both failed
+      if (makesResult.status === 'rejected' && modelsResult.status === 'rejected') {
+        photoDataError.value = 'Failed to load camera data. Autocomplete may be limited.'
+      }
+    } catch (err) {
+      console.error('[SearchFilters] Unexpected error fetching camera data:', err)
+      photoDataError.value = 'Failed to load camera data. Autocomplete may be limited.'
     } finally {
       loadingPhotoData.value = false
     }
@@ -521,5 +559,15 @@ const updateFocalLengthRange = (field: 'min' | 'max', value: string) =>
   margin: 0;
   font-size: 0.75rem;
   color: #888;
+}
+
+.photo-data-error {
+  grid-column: 1 / -1;
+  padding: 0.5rem 0.75rem;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  color: #856404;
+  font-size: 0.8125rem;
 }
 </style>

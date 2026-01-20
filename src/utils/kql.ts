@@ -1,41 +1,55 @@
 /**
- * KQL (Keyword Query Language) utilities for oCIS search
- * Handles query building, escaping, and formatting
+ * KQL (Keyword Query Language) utilities for oCIS search.
+ *
+ * KQL is the query language used by oCIS's Bleve-based search engine.
+ * This module handles:
+ * - Building KQL query strings from filter objects
+ * - Escaping special characters in search values
+ * - Formatting range queries (size, dates, etc.)
+ * - XML escaping for WebDAV REPORT requests
  */
 
 import type { SearchFilters, DateRange, NumericRange } from '../types'
+import { formatDateForKQL } from './format'
 
 /**
- * Characters that need escaping in KQL/Bleve queries
+ * Regex patterns for escaping KQL special characters.
+ * Pre-compiled and stored outside functions to avoid regex recompilation overhead.
+ *
+ * KQL_SPECIAL_CHARS: Escapes ALL special chars including wildcards (* ?)
+ *   Used when the value should be treated as literal text.
+ *   Characters: + - = & | > < ! ( ) { } [ ] ^ " ~ * ? : \ / whitespace
+ *
+ * KQL_SPECIAL_CHARS_KEEP_WILDCARDS: Escapes special chars BUT preserves * and ?
+ *   Used when the user intentionally included wildcards for pattern matching.
+ *   Characters: + - = & | > < ! ( ) { } [ ] ^ " ~ : \ /
  */
 const KQL_SPECIAL_CHARS = /[+\-=&|><!(){}[\]^"~*?:\\/\s]/g
+const KQL_SPECIAL_CHARS_KEEP_WILDCARDS = /[+\-=&|><!(){}[\]^"~:\\/]/g
 
 /**
- * Escape special characters in KQL query values
+ * Escape special characters in a KQL query value.
+ *
+ * If the value contains wildcards (* or ?), they are preserved (user intent).
+ * Otherwise, all special characters are escaped with backslash.
+ *
+ * @example
+ * escapeKQL("hello world") // "hello\\ world"
+ * escapeKQL("test*.pdf")   // "test*.pdf" (wildcard preserved)
+ * escapeKQL("file (1)")    // "file\\ \\(1\\)"
+ *
+ * @param value - The raw value to escape
+ * @returns Escaped value safe for KQL queries
  */
 export function escapeKQL(value: string): string {
-  // Don't escape wildcards if they appear to be intentional
+  // Detect intentional wildcards and preserve them
   if (value.includes('*') || value.includes('?')) {
-    // Only escape other special chars, keep wildcards
-    return value.replace(/[+\-=&|><!(){}[\]^"~:\\/]/g, '\\$&')
+    // Reset lastIndex - global regexes are stateful and can cause bugs
+    KQL_SPECIAL_CHARS_KEEP_WILDCARDS.lastIndex = 0
+    return value.replace(KQL_SPECIAL_CHARS_KEEP_WILDCARDS, '\\$&')
   }
+  KQL_SPECIAL_CHARS.lastIndex = 0
   return value.replace(KQL_SPECIAL_CHARS, '\\$&')
-}
-
-/**
- * Format date for KQL (YYYY-MM-DD)
- */
-export function formatDateForKQL(date: string): string {
-  // Ensure proper format
-  if (/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return date
-  }
-  // Try to parse and format
-  const d = new Date(date)
-  if (!isNaN(d.getTime())) {
-    return d.toISOString().split('T')[0]
-  }
-  return date
 }
 
 /**
@@ -73,17 +87,23 @@ export function buildDateRangeQuery(field: string, range: DateRange): string | n
 
   const parts: string[] = []
   if (range.start) {
-    parts.push(`${field}>=${formatDateForKQL(range.start)}`)
+    const formattedStart = formatDateForKQL(range.start)
+    if (formattedStart) {
+      parts.push(`${field}>=${formattedStart}`)
+    }
   }
   if (range.end) {
-    parts.push(`${field}<=${formatDateForKQL(range.end)}`)
+    const formattedEnd = formatDateForKQL(range.end)
+    if (formattedEnd) {
+      parts.push(`${field}<=${formattedEnd}`)
+    }
   }
 
-  // If both start and end, wrap in parentheses
+  // If both min and max, wrap in parentheses
   if (parts.length === 2) {
     return `(${parts.join(' AND ')})`
   }
-  return parts[0]
+  return parts.length > 0 ? parts[0] : null
 }
 
 /**
@@ -100,25 +120,75 @@ export function escapeXML(str: string): string {
 }
 
 /**
- * Build KQL query parts for standard filters
+ * Wrap a search value for KQL, handling phrases and wildcards correctly.
+ *
+ * KQL phrase search rules:
+ * - Multi-word phrases must be quoted: "hello world"
+ * - Wildcards inside quotes are treated literally: "test*" matches "test*" not "testing"
+ * - Wildcards outside quotes work: "*test*" matches "testing", "contest", etc.
+ *
+ * This function handles the quote/wildcard placement automatically:
+ * - Single word: *word* (wildcards wrap the escaped word)
+ * - Multi-word phrase: "*phrase here*" (quotes wrap phrase, wildcards outside)
+ *
+ * @example
+ * wrapForSearch("report")        // "*report*"
+ * wrapForSearch("annual report") // ""*annual report*""
+ * wrapForSearch("*.pdf", false)  // "*.pdf" (no extra wildcards)
+ *
+ * @param value - The search value
+ * @param addWildcards - Whether to add * wildcards for partial matching (default: true)
+ * @returns KQL-safe search term with proper quoting and wildcards
+ */
+function wrapForSearch(value: string, addWildcards: boolean = true): string {
+  const trimmed = value.trim()
+  const hasSpaces = /\s/.test(trimmed)
+
+  if (hasSpaces) {
+    // Multi-word phrase: must quote, wildcards go OUTSIDE quotes to work
+    if (addWildcards) {
+      return `"*${trimmed}*"`
+    }
+    return `"${trimmed}"`
+  }
+
+  // Single word: escape special chars, optionally wrap with wildcards
+  if (addWildcards) {
+    return `*${escapeKQL(trimmed)}*`
+  }
+  return escapeKQL(trimmed)
+}
+
+/**
+ * Build KQL query parts for standard (non-photo) filters.
+ *
+ * Converts filter object fields into KQL expressions that can be
+ * joined with AND to form a complete query.
+ *
+ * @param standard - Standard filter fields (name, type, size, dates, etc.)
+ * @param term - Free-text search term from the main search input
+ * @returns Array of KQL expressions (e.g., ["name:*report*", "Type:1", "size>=1000"])
  */
 export function buildStandardKQL(standard: SearchFilters['standard'], term: string): string[] {
   const parts: string[] = []
 
-  // Basic text search term
+  // Handle the main search term input
   if (term && term.trim()) {
+    // If term contains ":" it's already a field query (e.g., "content:budget")
+    // Pass it through unchanged to allow power users to write raw KQL
     if (!term.includes(':')) {
-      parts.push(`name:*${escapeKQL(term.trim())}*`)
+      parts.push(`name:${wrapForSearch(term.trim(), true)}`)
     } else {
       parts.push(term.trim())
     }
   }
 
   if (standard.name) {
-    parts.push(`name:${escapeKQL(standard.name)}`)
+    // Don't add extra wildcards if user already included them
+    parts.push(`name:${wrapForSearch(standard.name, !standard.name.includes('*'))}`)
   }
 
-  // Type field uses numeric values: 1 = file, 2 = folder
+  // oCIS uses numeric type values: 1 = file, 2 = folder (not strings)
   if (standard.type === 'file') {
     parts.push('Type:1')
   } else if (standard.type === 'folder') {
@@ -142,15 +212,16 @@ export function buildStandardKQL(standard: SearchFilters['standard'], term: stri
   if (standard.tags) {
     const tagList = standard.tags.split(',').map(t => t.trim()).filter(Boolean)
     if (tagList.length === 1) {
-      parts.push(`tags:${escapeKQL(tagList[0])}`)
+      parts.push(`tags:${wrapForSearch(tagList[0], false)}`)
     } else if (tagList.length > 1) {
-      const tagQuery = tagList.map(t => `tags:${escapeKQL(t)}`).join(' OR ')
+      const tagQuery = tagList.map(t => `tags:${wrapForSearch(t, false)}`).join(' OR ')
       parts.push(`(${tagQuery})`)
     }
   }
 
   if (standard.content) {
-    parts.push(`content:${escapeKQL(standard.content)}`)
+    // Content search also needs phrase handling for multi-word searches
+    parts.push(`content:${wrapForSearch(standard.content, false)}`)
   }
 
   return parts
@@ -163,11 +234,13 @@ export function buildPhotoKQL(photo: SearchFilters['photo']): string[] {
   const parts: string[] = []
 
   if (photo.cameraMake) {
-    parts.push(`photo.cameramake:${escapeKQL(photo.cameraMake)}`)
+    // Camera makes can have spaces (e.g., "FUJIFILM CORPORATION")
+    parts.push(`photo.cameramake:${wrapForSearch(photo.cameraMake, false)}`)
   }
 
   if (photo.cameraModel) {
-    parts.push(`photo.cameramodel:${escapeKQL(photo.cameraModel)}`)
+    // Camera models often have spaces (e.g., "EOS R5", "iPhone 14 Pro")
+    parts.push(`photo.cameramodel:${wrapForSearch(photo.cameraModel, false)}`)
   }
 
   if (photo.takenDateRange) {

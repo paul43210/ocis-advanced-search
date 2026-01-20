@@ -2,13 +2,16 @@
   <span class="filter-chip" :class="categoryClass">
     <span class="chip-label">{{ filter.label }}:</span>
     <span class="chip-value">{{ filter.value }}</span>
-    <button class="chip-remove" @click="emit('remove')" title="Remove filter">×</button>
+    <button class="chip-remove" @click="emit('remove')" :title="$gettext('Remove filter')">×</button>
   </span>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { ActiveFilter } from '../types'
+import { useTranslations } from '../composables/useTranslations'
+
+const { $gettext } = useTranslations()
 
 const props = defineProps<{
   filter: ActiveFilter

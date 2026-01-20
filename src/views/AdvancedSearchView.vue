@@ -304,8 +304,12 @@ function buildDavUrl(item: SearchResource): string {
 }
 
 // Debounced filter term update (300ms delay to avoid excessive reactivity)
+// Includes guard to prevent redundant updates when loading saved queries
 const updateFilterTerm = debounce((term: string) => {
-  state.filters.term = term
+  // Only update if value actually changed (avoids circular updates)
+  if (state.filters.term !== term) {
+    state.filters.term = term
+  }
 }, 300)
 
 // Watch for search term changes with debounce
@@ -514,15 +518,19 @@ function applyKqlToFilters(): void {
   searchTerm.value = state.filters.term || ''
 }
 
+// App identifier - must match the directory name in oCIS assets path
+const APP_ID = 'advanced-search'
+
 // Inject CSS stylesheet (oCIS doesn't auto-load external app CSS)
+// Path follows oCIS convention: /assets/apps/{app-id}/style.css
 function injectStylesheet() {
-  const styleId = 'advanced-search-styles'
+  const styleId = `${APP_ID}-styles`
   if (document.getElementById(styleId)) return
 
   const link = document.createElement('link')
   link.id = styleId
   link.rel = 'stylesheet'
-  link.href = '/assets/apps/advanced-search/style.css'
+  link.href = `/assets/apps/${APP_ID}/style.css`
   document.head.appendChild(link)
 }
 

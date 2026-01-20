@@ -3,7 +3,7 @@
  * Handles KQL query building and search execution via WebDAV REPORT
  */
 
-import { ref, computed, reactive } from 'vue'
+import { ref, computed, reactive, onUnmounted, getCurrentInstance } from 'vue'
 import { useClientService, useConfigStore, useSpacesStore } from '@ownclouders/web-pkg'
 import type { Resource, SpaceResource } from '@ownclouders/web-client'
 import type {
@@ -46,13 +46,23 @@ import { useTranslations } from './useTranslations'
  * @throws Error if XML is malformed or contains parser errors
  */
 function parseSearchResponse(xmlText: string, spaceId: string, driveAlias: string): Resource[] {
+  // Pre-validate that response looks like XML
+  const trimmed = xmlText.trim()
+  if (!trimmed.startsWith('<?xml') && !trimmed.startsWith('<')) {
+    throw new Error('Invalid response: expected XML but received non-XML content')
+  }
+
   const parser = new DOMParser()
   const doc = parser.parseFromString(xmlText, 'application/xml')
 
   // DOMParser doesn't throw on invalid XML - check for parsererror element instead
   const parserError = doc.querySelector('parsererror')
-  if (parserError) {
-    throw new Error(`XML parsing failed: ${parserError.textContent?.slice(0, 100) || 'Unknown error'}`)
+
+  // Also verify we got the expected WebDAV multistatus root element
+  const multistatus = doc.getElementsByTagNameNS('DAV:', 'multistatus')[0]
+
+  if (parserError || !multistatus) {
+    throw new Error(`XML parsing failed: ${parserError?.textContent?.slice(0, 100) || 'Unexpected response format (not a WebDAV multistatus)'}`)
   }
 
   const responses = doc.getElementsByTagNameNS('DAV:', 'response')
@@ -150,8 +160,27 @@ export function useAdvancedSearch() {
   // Page size for pagination
   const pageSize = ref(100)
 
+  // Request timeout in milliseconds (30 seconds)
+  const REQUEST_TIMEOUT_MS = 30000
+
   // AbortController for cancelling in-flight requests
   let currentAbortController: AbortController | null = null
+  let currentTimeoutId: ReturnType<typeof setTimeout> | null = null
+
+  // Clean up on component unmount to prevent memory leaks and orphaned requests
+  // Only register if we're inside a component context (not in tests)
+  if (getCurrentInstance()) {
+    onUnmounted(() => {
+      if (currentTimeoutId) {
+        clearTimeout(currentTimeoutId)
+        currentTimeoutId = null
+      }
+      if (currentAbortController) {
+        currentAbortController.abort()
+        currentAbortController = null
+      }
+    })
+  }
 
   /**
    * Build KQL query string from current filters
@@ -325,11 +354,24 @@ export function useAdvancedSearch() {
    */
   async function executeSearch(page = 0): Promise<void> {
     // Cancel any in-flight request to prevent race conditions
+    if (currentTimeoutId) {
+      clearTimeout(currentTimeoutId)
+      currentTimeoutId = null
+    }
     if (currentAbortController) {
       currentAbortController.abort()
     }
     currentAbortController = new AbortController()
     const abortSignal = currentAbortController.signal
+
+    // Track if abort was due to timeout (vs user cancellation or new search)
+    let timedOut = false
+
+    // Set request timeout
+    currentTimeoutId = setTimeout(() => {
+      timedOut = true
+      currentAbortController?.abort()
+    }, REQUEST_TIMEOUT_MS)
 
     state.loading = true
     state.error = null
@@ -383,6 +425,12 @@ export function useAdvancedSearch() {
         signal: abortSignal
       })
 
+      // Clear timeout on successful response
+      if (currentTimeoutId) {
+        clearTimeout(currentTimeoutId)
+        currentTimeoutId = null
+      }
+
       const xmlText = typeof response.data === 'string' ? response.data : new XMLSerializer().serializeToString(response.data)
       const items = parseSearchResponse(xmlText, spaceId, driveAlias)
 
@@ -393,6 +441,19 @@ export function useAdvancedSearch() {
         currentPage: page,
       }
     } catch (err: unknown) {
+      // Clear timeout on error
+      if (currentTimeoutId) {
+        clearTimeout(currentTimeoutId)
+        currentTimeoutId = null
+      }
+
+      // Handle timeout abort specially
+      if (timedOut) {
+        state.error = $gettext('Search timed out. Try a more specific query or check if the search service is responding.')
+        state.results = createEmptyResults()
+        return
+      }
+
       // Ignore abort errors (request was cancelled by a newer search)
       if (err instanceof Error && err.name === 'AbortError') {
         return
@@ -703,9 +764,13 @@ export function useAdvancedSearch() {
         break
       case 'tags':
       case 'tag':
-        state.filters.standard.tags = state.filters.standard.tags
-          ? state.filters.standard.tags + ',' + value
-          : value
+        // Only add non-empty tag values
+        if (value && value.trim()) {
+          const trimmedValue = value.trim()
+          state.filters.standard.tags = state.filters.standard.tags
+            ? state.filters.standard.tags + ',' + trimmedValue
+            : trimmedValue
+        }
         break
       case 'content':
         state.filters.standard.content = value

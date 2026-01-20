@@ -384,19 +384,39 @@ watch(showPhoto, async (isShown) => {
   }
 })
 
-// Generic range update helper
+// Type-safe range update helper
 type RangeType = 'numeric' | 'float' | 'date'
-type FilterCategory = 'standard' | 'photo'
 
+// Valid range keys for each filter category
+type StandardRangeKey = 'sizeRange' | 'modifiedRange'
+type PhotoRangeKey = 'takenDateRange' | 'isoRange' | 'fNumberRange' | 'focalLengthRange'
+
+// Overloaded function signatures for type safety
 function updateRange(
-  category: FilterCategory,
-  rangeKey: string,
+  category: 'standard',
+  rangeKey: StandardRangeKey,
+  field: 'min' | 'max' | 'start' | 'end',
+  value: string,
+  type?: RangeType
+): void
+function updateRange(
+  category: 'photo',
+  rangeKey: PhotoRangeKey,
+  field: 'min' | 'max' | 'start' | 'end',
+  value: string,
+  type?: RangeType
+): void
+function updateRange(
+  category: 'standard' | 'photo',
+  rangeKey: StandardRangeKey | PhotoRangeKey,
   field: 'min' | 'max' | 'start' | 'end',
   value: string,
   type: RangeType = 'numeric'
 ): void {
   const filters = category === 'standard' ? props.filters.standard : props.filters.photo
-  const current = (filters as any)[rangeKey] || (type === 'date' ? { start: '', end: '' } : {})
+  // Type assertion is safe here because rangeKey is constrained by the overload signatures
+  const current = (filters as Record<string, unknown>)[rangeKey] as Record<string, unknown> | undefined
+    || (type === 'date' ? { start: '', end: '' } : {})
 
   let parsedValue: string | number | undefined
   if (type === 'date') {
@@ -408,6 +428,18 @@ function updateRange(
   }
 
   const updated = { ...current, [field]: parsedValue }
+
+  // Validate date ranges: auto-swap if start > end
+  if (type === 'date' && updated.start && updated.end) {
+    const startDate = new Date(updated.start as string)
+    const endDate = new Date(updated.end as string)
+    if (startDate > endDate) {
+      // Swap the values
+      const temp = updated.start
+      updated.start = updated.end
+      updated.end = temp
+    }
+  }
 
   if (category === 'standard') {
     emit('update:standard', { ...props.filters.standard, [rangeKey]: updated })

@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useAdvancedSearch } from './useAdvancedSearch'
 
+// Mock vue3-gettext
+vi.mock('vue3-gettext', () => ({
+  useGettext: () => ({
+    $gettext: (msg: string) => msg,
+    $ngettext: (singular: string, plural: string, n: number) => (n === 1 ? singular : plural),
+    $pgettext: (_context: string, msg: string) => msg,
+  })
+}))
+
 // Mock @ownclouders/web-pkg
 vi.mock('@ownclouders/web-pkg', () => ({
   useClientService: () => ({

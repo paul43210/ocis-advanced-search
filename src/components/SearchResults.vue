@@ -29,7 +29,12 @@
         </div>
         <span class="item-size">{{ formatBytes(item.size) }}</span>
         <span class="item-date">{{ formatDate(item.mdate) }}</span>
-        <button class="item-menu-btn" @click.stop="emit('context-menu', $event, item)" :title="$gettext('More actions')">
+        <button
+          class="item-menu-btn"
+          @click.stop="emit('context-menu', $event, item)"
+          :title="$gettext('More actions')"
+          :aria-label="$gettext('More actions for %{name}').replace('%{name}', item.name || '')"
+        >
           ⋮
         </button>
       </div>
@@ -46,7 +51,12 @@
       >
         <div class="grid-thumbnail">
           <span class="grid-icon">{{ getIcon(item) }}</span>
-          <button class="grid-menu-btn" @click.stop="emit('context-menu', $event, item)" :title="$gettext('More actions')">
+          <button
+            class="grid-menu-btn"
+            @click.stop="emit('context-menu', $event, item)"
+            :title="$gettext('More actions')"
+            :aria-label="$gettext('More actions for %{name}').replace('%{name}', item.name || '')"
+          >
             ⋮
           </button>
         </div>
@@ -86,7 +96,12 @@
           <td v-if="hasPhotoItems">{{ getCameraInfo(item) }}</td>
           <td v-if="hasPhotoItems">{{ getPhotoDate(item) }}</td>
           <td class="cell-actions">
-            <button class="item-menu-btn" @click.stop="emit('context-menu', $event, item)" :title="$gettext('More actions')">
+            <button
+              class="item-menu-btn"
+              @click.stop="emit('context-menu', $event, item)"
+              :title="$gettext('More actions')"
+              :aria-label="$gettext('More actions for %{name}').replace('%{name}', item.name || '')"
+            >
               ⋮
             </button>
           </td>
@@ -115,15 +130,22 @@ const emit = defineEmits<{
 }>()
 
 /**
+ * Sample size for checking photo metadata presence.
+ * Only checks first N items instead of scanning entire result set.
+ * See hasPhotoItems computed for rationale.
+ */
+const PHOTO_CHECK_SAMPLE_SIZE = 20
+
+/**
  * Check if any items have photo metadata to determine whether to show photo columns.
  *
- * Performance optimization: Only checks first 20 items instead of scanning the
- * entire result set. Rationale:
+ * Performance optimization: Only checks first PHOTO_CHECK_SAMPLE_SIZE items instead
+ * of scanning the entire result set. Rationale:
  * - If photos exist in the results, they're likely to appear early (search usually
  *   returns relevant results first)
- * - Checking 20 items is O(1) vs O(n) for full scan
+ * - Checking N items is O(1) vs O(n) for full scan
  * - False negatives are acceptable (columns just won't show for edge cases where
- *   all photos are after item 20)
+ *   all photos are after the sample)
  *
  * The template uses v-memo on each item row with dependency arrays containing
  * only the properties displayed in that view mode. This prevents re-renders
@@ -131,7 +153,9 @@ const emit = defineEmits<{
  * id/name/mimeType/size/mdate/photo fields change, not on unrelated prop changes).
  */
 const hasPhotoItems = computed(() => {
-  const itemsToCheck = props.items.length > 20 ? props.items.slice(0, 20) : props.items
+  const itemsToCheck = props.items.length > PHOTO_CHECK_SAMPLE_SIZE
+    ? props.items.slice(0, PHOTO_CHECK_SAMPLE_SIZE)
+    : props.items
   return itemsToCheck.some(item => item.photo)
 })
 

@@ -129,6 +129,41 @@ export function getSpaceIcon(driveType: string): string {
   }
 }
 
+/**
+ * Sanitize text for safe display in HTML contexts.
+ *
+ * Escapes HTML special characters to prevent XSS attacks when
+ * displaying untrusted content (e.g., error messages from APIs,
+ * user input, or filenames).
+ *
+ * Use this function when interpolating dynamic content into HTML
+ * that is not using Vue's built-in escaping (e.g., v-html, innerHTML,
+ * or document.createElement scenarios).
+ *
+ * Note: Vue templates automatically escape interpolated values in
+ * {{ }} and :attribute bindings, so this is only needed for cases
+ * where raw HTML rendering is used.
+ *
+ * @example
+ * // Safe for innerHTML or v-html
+ * element.innerHTML = sanitizeForDisplay(untrustedMessage)
+ *
+ * // Error messages from external sources
+ * const safeMessage = sanitizeForDisplay(apiError.message)
+ *
+ * @param text - Potentially untrusted text to sanitize
+ * @returns HTML-safe string with special characters escaped
+ */
+export function sanitizeForDisplay(text: string): string {
+  if (!text) return ''
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+}
+
 /** Translation function type for classifyError */
 type TranslateFn = (text: string) => string
 
